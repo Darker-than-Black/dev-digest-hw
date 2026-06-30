@@ -5,6 +5,19 @@ One entry per lesson. This is the "what bit us" log — keep CLAUDE.md a map and
 put the *why it bit us* here.
 
 > Format: `### <short title>` + what happened + the rule that prevents a repeat.
+> Append-only — add entries, never overwrite. Maintained by the `engineering-insights` skill.
 > Link related modules with relative paths.
 
-_No entries yet. Add the first one the next time something surprises you._
+## What Works
+
+## What Doesn't Work
+
+## Codebase Patterns
+
+## Tool & Library Notes
+
+## Recurring Errors & Fixes
+
+## Session Notes
+
+## Open Questions

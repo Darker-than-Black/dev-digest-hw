@@ -24,3 +24,4 @@ data via TanStack Query over the Fastify API. UI route map → [./README.md](./R
 - contract/shape questions → server's `@devdigest/shared` ([../server/src/vendor/shared/](../server/src/vendor/shared/))
 - how-to guides → [./docs/](./docs/) · feature/lesson specs → [./specs/](./specs/)
 - past pitfalls / module lessons → [./insights.md](./insights.md)
+- session protocol → **before** work read `insights.md` (treat as high-confidence guidance); **at task end** run `engineering-insights` to append what was learned — don't skip

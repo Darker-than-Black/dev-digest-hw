@@ -19,3 +19,4 @@ prompt context costs no analysis at request time. Pipeline diagram → [./README
 ## Read when…
 - server-wide conventions / DI → [../../../CLAUDE.md](../../../CLAUDE.md) (server)
 - past pitfalls / indexer lessons → [./insights.md](./insights.md)
+- session protocol → **before** work read `insights.md` (treat as high-confidence guidance); **at task end** run `engineering-insights` to append what was learned — don't skip

@@ -26,3 +26,4 @@ Imports repos/PRs, indexes with repo-intel, stores agents, runs the reviewer
 - test/CI strategy → [../TESTING.md](../TESTING.md)
 - how-to guides → [./docs/](./docs/) · feature/lesson specs → [./specs/](./specs/)
 - past pitfalls / module lessons → [./insights.md](./insights.md)
+- session protocol → **before** work read `insights.md` (treat as high-confidence guidance); **at task end** run `engineering-insights` to append what was learned — don't skip

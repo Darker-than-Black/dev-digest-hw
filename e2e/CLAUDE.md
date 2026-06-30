@@ -21,3 +21,4 @@ Playwright, no LLM, no API key.** How a flow works → [./README.md](./README.md
 - adding/debugging a flow → existing `specs/*.flow.json` + `run.ts`
 - how-to guides → [./docs/](./docs/)
 - past pitfalls / flaky-flow lessons → [./insights.md](./insights.md)
+- session protocol → **before** work read `insights.md` (treat as high-confidence guidance); **at task end** run `engineering-insights` to append what was learned — don't skip
