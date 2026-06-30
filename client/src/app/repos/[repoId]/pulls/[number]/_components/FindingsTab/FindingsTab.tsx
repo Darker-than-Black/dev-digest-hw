@@ -2,6 +2,7 @@
 
 import React, { useCallback } from "react";
 import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
+import { FindingsPopoverBar } from "@/components/FindingsPopoverBar";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
@@ -24,6 +25,8 @@ interface FindingsTabProps {
   onOpenTrace: (id: string) => void;
   onDelete: (id: string) => void;
   onRunDone: () => void;
+  /** Finding id to scroll to + flash (from the PR list popover deep-link). */
+  focusFindingId?: string | null;
 }
 
 export function FindingsTab({
@@ -40,6 +43,7 @@ export function FindingsTab({
   onOpenTrace,
   onDelete,
   onRunDone,
+  focusFindingId,
 }: FindingsTabProps) {
   const handleCancelAll = useCallback(() => {
     liveRunIds.forEach((id) => cancelMutation.mutate(id));
@@ -70,6 +74,36 @@ export function FindingsTab({
   const handleGoToReview = useCallback((runId: string) => {
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
   }, []);
+
+  // Per-severity totals across every run's findings (drives the counter bar).
+  const allFindings = React.useMemo(() => runs.flatMap((r) => r.findings), [runs]);
+  const sevCounts = React.useMemo(() => {
+    const acc = { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 };
+    for (const f of allFindings) if (f.severity in acc) acc[f.severity as keyof typeof acc] += 1;
+    return acc;
+  }, [allFindings]);
+  const hasFindings = allFindings.length > 0;
+
+  // Navigate to a finding: ask the accordion that holds it to open (keyed by
+  // finding id, so it works even for runs with no run_id), then scroll the
+  // finding card into view and flash it. The nonce re-triggers on repeat clicks.
+  const [focus, setFocus] = React.useState<{ id: string; n: number } | null>(null);
+  const focusFinding = useCallback((findingId: string) => {
+    setFocus((p) => ({ id: findingId, n: (p?.n ?? 0) + 1 }));
+    window.setTimeout(() => {
+      const el = document.querySelector(`[data-finding-id="${findingId}"]`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("dd-finding-flash");
+      window.setTimeout(() => el.classList.remove("dd-finding-flash"), 1500);
+    }, 320);
+  }, []);
+
+  // Deep-link from the PR list popover: ?finding=<id> focuses it once loaded.
+  React.useEffect(() => {
+    if (focusFindingId) focusFinding(focusFindingId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusFindingId, runs]);
 
   return (
     <section>
@@ -140,7 +174,18 @@ export function FindingsTab({
 
       <SectionLabel
         icon="AlertOctagon"
-        right={<span style={{ fontSize: 12, color: "var(--text-muted)" }}>grouped by run · newest first</span>}
+        right={
+          hasFindings ? (
+            <FindingsPopoverBar
+              counts={sevCounts}
+              findings={allFindings}
+              onSelectFinding={(f) => focusFinding(f.id)}
+              hideZero
+            />
+          ) : (
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>grouped by run · newest first</span>
+          )
+        }
       >
         Review runs
       </SectionLabel>
@@ -164,6 +209,8 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            openFindingId={focus?.id ?? null}
+            openNonce={focus?.n ?? 0}
           />
         ))
       )}

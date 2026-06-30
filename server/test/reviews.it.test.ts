@@ -296,6 +296,57 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('GET /repos/:id/pulls returns a per-severity findings breakdown (null until reviewed)', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+
+    // Reviewed PR: insert a review + findings directly (2 CRITICAL, 1 WARNING,
+    // 1 SUGGESTION) so the list aggregate has a known mix to count.
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const [review] = await pg.handle.db
+      .insert(t.reviews)
+      .values({
+        workspaceId,
+        prId: pr.id,
+        kind: 'review',
+        verdict: 'request_changes',
+        summary: 'mix',
+        score: 50,
+        model: 'gpt-4.1',
+      })
+      .returning();
+    const sevs = ['CRITICAL', 'CRITICAL', 'WARNING', 'SUGGESTION'] as const;
+    await pg.handle.db.insert(t.findings).values(
+      sevs.map((severity, i) => ({
+        reviewId: review!.id,
+        file: 'src/config.ts',
+        startLine: 11 + i,
+        endLine: 11 + i,
+        severity,
+        category: 'security',
+        title: `f${i}`,
+        rationale: 'r',
+        confidence: 0.9,
+        kind: 'finding' as const,
+      })),
+    );
+
+    const reviewedRepoList = (
+      await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })
+    ).json();
+    const reviewedRow = reviewedRepoList.find((p: { id: string }) => p.id === pr.id);
+    expect(reviewedRow.findings).toEqual({ CRITICAL: 2, WARNING: 1, SUGGESTION: 1 });
+
+    // Unreviewed PR (fresh repo, no reviews) → findings is null.
+    const { repo: repo2, pr: pr2 } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const freshList = (
+      await app.inject({ method: 'GET', url: `/repos/${repo2.id}/pulls` })
+    ).json();
+    const freshRow = freshList.find((p: { id: string }) => p.id === pr2.id);
+    expect(freshRow.findings).toBeNull();
+
+    await app.close();
+  });
+
   it('run all enabled agents reviews with each enabled agent', async () => {
     const app = await appWith(REVIEW_FIXTURE);
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);

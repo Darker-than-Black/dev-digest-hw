@@ -31,6 +31,14 @@ Grep `completeAgentRun` before touching it — expect 2 hits, not 1.
 COST must aggregate `agent_runs.cost_usd` (`SUM … GROUP BY pr_id` in `modules/pulls/routes.ts`).
 Don't look for cost on the review row.
 
+### PR-list per-severity findings breakdown = `findings ⋈ reviews` by `prId`, kind='review'
+Same shape as the SCORE/COST aggregates in `modules/pulls/routes.ts`: one IN-query +
+JS group, no FK denorm. `select({prId:reviews.prId, severity:findings.severity, n:count()})`
+`.from(findings).innerJoin(reviews,…).where(inArray(reviews.prId,ids) AND reviews.kind='review')`
+`.groupBy(reviews.prId, findings.severity)`. Counts **all** review runs of the PR (matches the
+detail page's `runs.flatMap(r=>r.findings)`). `findings.severity` is plain `text` (no pg enum) —
+**clamp to the 3 known keys**, ignore strays, or one bad row breaks the response shape.
+
 ### No seed creates `agent_runs` / `run_traces`
 `db/seed.ts` seeds repos/PRs/reviews/findings/agents only — **runs are born from live reviews**.
 A feature that displays run data shows nothing on a fresh seed until a real review runs. Don't
@@ -57,6 +65,13 @@ Re-threaded `costUsd` (severed by `d45ab0d`): migration `0010` re-adds `agent_ru
 executor → `completeAgentRun` (+ facade) → trace `stats` → `RunSummary`/`RunStats`/`PrMeta`
 contracts; PR-list `SUM` route. Client mirror + `RunCostBadge`. See [client/insights.md](../client/insights.md).
 Tests: `reviews.it.test.ts` asserts cost persists DB→trace→`GET /pulls/:id/runs`.
+
+### 2026-07-01 — per-severity findings breakdown on PrMeta (PR-list column)
+Added `findings:{CRITICAL,WARNING,SUGGESTION}` (nullish) to `PrMeta` (both vendored copies) +
+a COUNT-by-severity aggregate in `modules/pulls/routes.ts` (mirrors score/cost). `null` until
+reviewed → UI renders `—`. Test: `reviews.it.test.ts` inserts mixed-severity findings directly
+(grounding would drop them) and asserts the list breakdown + `null` for an unreviewed PR. Client
+UI (popover + navigate) → [client/insights.md](../client/insights.md).
 
 ## Open Questions
 

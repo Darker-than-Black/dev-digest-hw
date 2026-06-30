@@ -10,6 +10,17 @@ put the *why it bit us* here.
 
 ## What Works
 
+### Lazy-fetch popover data with an "armed" gate, not on row mount
+A per-row popover that needs extra data (PR list FINDINGS → `usePrReviews`) must NOT
+fetch for every row on list mount. Pattern: `const [armed,setArmed]=useState(false)` flipped
+on first open, then `usePrReviews(armed ? prId : null)` (the hook's `enabled:!!prId` skips
+the null). See [`_components/PRRow/PRRowFindings.tsx`](src/app/repos/[repoId]/pulls/_components/PRRow/PRRowFindings.tsx).
+
+### Counter UI = reuse `SeverityBadge` (has `count`+`compact`) + `SEV` token map
+Don't hand-roll severity pills. `SeverityBadge severity count compact` (`vendor/ui/primitives/Badge.tsx`)
+renders icon+count; `SEV` (`tokens.ts`) is the color/icon/label source of truth. `SeverityCounters`
+composes 3 of them; `FindingsPopoverBar` wraps that with a popover.
+
 ## What Doesn't Work
 
 ## Codebase Patterns
@@ -32,9 +43,38 @@ to keep left-alignment. Miss one and columns misalign silently.
 zeros stripped: 0.06→"$0.06", 0.0013→"$0.0013"). Reused by `RunCostBadge` (PR list + timeline)
 and the drawer COST `Stat` card. Never render `$0.00` for a missing value — always `—`.
 
+### Floating panels must portal to `<body>` — the PR-list `tableCard` clips them
+`pulls/styles.ts` `tableCard` has `overflow: hidden` (rounds the row corners), so an
+absolutely-positioned popover inside a row gets clipped. Render the panel via
+`createPortal(panel, document.body)` with `position: fixed` computed from the trigger's
+`getBoundingClientRect()` (reposition on scroll/resize, capture-phase). See
+[`components/FindingsPopoverBar/FindingsPopoverBar.tsx`](src/components/FindingsPopoverBar/FindingsPopoverBar.tsx).
+
+### Navigate-to-finding: `data-finding-id` anchor + open accordion BY finding id
+`FindingCard` already renders `data-finding-id={f.id}` — scroll via
+`document.querySelector('[data-finding-id="…"]')` + add the `dd-finding-flash` class
+(keyframe in `vendor/ui/styles.css`). The card only exists when its run accordion is OPEN, and
+seeded `reviews` can have `run_id === null` — so open the accordion by **matching the finding id
+against `review.findings`**, NOT by `run_id` (the existing Timeline `targetRunId` path silently
+no-ops for null run_id). `ReviewRunAccordion` takes `openFindingId`+`openNonce`.
+
 ## Tool & Library Notes
 
+### Two `Severity` types: `@devdigest/ui` (4 values, has INFO) vs `@devdigest/shared` (3)
+`vendor/ui/primitives/tokens.ts` `Severity = CRITICAL|WARNING|SUGGESTION|INFO`; the shared
+contract `Severity` has only the 3 real ones. A callback typed `(s: ui.Severity)=>void` is NOT
+assignable from `(s: shared.Severity)=>void` (param contravariance: INFO can't flow to the 3-set).
+For interactive severity props use the 3-value `Sev` exported from `SeverityCounters`, not ui's
+`Severity`.
+
 ## Recurring Errors & Fixes
+
+### "Cannot update a component while rendering a different component" — callback in a setState updater
+`FindingsPopoverBar` called the parent's `onOpenSeverity` **inside** the `setOpenSev(cur=>…)`
+updater fn → React runs updaters during render, so the parent (`PRRowFindings`) `setState` fired
+mid-render. Fix: compute next value from current state in the event handler and call the parent
+callback **outside** the updater (`setOpenSev(next); if(next) onOpenSeverity?.(next)`). Never call
+a prop/parent setter from within a `setState(updater)`.
 
 ## Session Notes
 
@@ -42,6 +82,15 @@ and the drawer COST `Stat` card. Never render `$0.00` for a missing value — al
 Added `RunCostBadge` + `formatCost` (`components/RunCostBadge/`), COST column (PR table),
 cost-only timeline row (`RunHistory`), COST stat card (`TraceBody`). i18n: `prReview.columns.cost`,
 `runs.trace.stat.cost`. Data plumbing on server side — see [../server/insights.md](../server/insights.md).
+
+### 2026-07-01 — findings-by-severity counters + click popover (both PR pages)
+Added `SeverityCounters` (`vendor/ui/primitives`) + `FindingsPopoverBar`
+(`components/FindingsPopoverBar/`, portalled). PR-list FINDINGS column (`PRRowFindings`,
+lazy-fetch) and PR-detail Review-runs bar both open a popover of that severity's findings;
+clicking a finding deep-links `?tab=findings&finding=<id>` → `FindingsTab` opens the run
+accordion by finding id + scrolls/flashes. Server adds per-severity counts to `PrMeta` — see
+[../server/insights.md](../server/insights.md). Spec: [specs/findings-by-severity.md](specs/findings-by-severity.md).
+First design (in-place card filter) was scrapped as a "bug" — user wanted the popover.
 
 ## Open Questions
 

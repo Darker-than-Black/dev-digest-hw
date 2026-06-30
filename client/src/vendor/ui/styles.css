@@ -270,6 +270,19 @@ p {
     background-position: -200% 0;
   }
 }
+/* Brief ring pulse when a finding is navigated to from a severity popover. */
+@keyframes ddflash {
+  0% {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+.dd-finding-flash {
+  animation: ddflash 1.4s ease-out;
+  border-radius: 10px;
+}
 
 .skeleton {
   background: linear-gradient(

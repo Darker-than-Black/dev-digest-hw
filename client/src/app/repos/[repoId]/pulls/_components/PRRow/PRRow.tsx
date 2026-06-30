@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
 import { RunCostBadge } from "@/components/RunCostBadge/RunCostBadge";
+import { PRRowFindings } from "./PRRowFindings";
 import type { PrMeta } from "@/lib/types";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
@@ -50,6 +51,18 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
       <div style={s.scoreCell}>
         {reviewed ? (
           <CircularScore score={pr.score!} size={34} stroke={3} />
+        ) : (
+          <span style={s.muted}>—</span>
+        )}
+      </div>
+      <div style={s.findingsCell}>
+        {pr.findings ? (
+          <PRRowFindings
+            prId={pr.id}
+            prNumber={pr.number}
+            repoId={repoId}
+            counts={pr.findings}
+          />
         ) : (
           <span style={s.muted}>—</span>
         )}

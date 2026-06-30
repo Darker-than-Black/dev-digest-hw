@@ -173,6 +173,15 @@ export const PrMeta = z.object({
   // Total LLM cost across all runs (USD); list endpoint only. Null when no
   // priced run exists → "—", never "$0.00".
   cost_usd: z.number().nullish(),
+  // Per-severity finding counts across all review runs (list endpoint only).
+  // Null/absent until the PR has been reviewed → list renders nothing.
+  findings: z
+    .object({
+      CRITICAL: z.number().int(),
+      WARNING: z.number().int(),
+      SUGGESTION: z.number().int(),
+    })
+    .nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 
