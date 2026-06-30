@@ -63,6 +63,9 @@ export const RunStats = z.object({
   tokens_out: z.number().int(),
   findings: z.number().int(),
   grounding: z.string(),
+  // Per-run LLM cost (USD); null when no LLM call happened (failed/cancelled) →
+  // UI renders "—", never "$0.00".
+  cost_usd: z.number().nullable(),
 });
 export type RunStats = z.infer<typeof RunStats>;
 
@@ -109,5 +112,7 @@ export const RunSummary = z.object({
   // findings that trip the agent's gate. Null on failed/cancelled runs.
   score: z.number().int().nullable(),
   blockers: z.number().int().nullable(),
+  // Per-run LLM cost (USD); null on running/failed/cancelled/legacy runs.
+  cost_usd: z.number().nullable(),
 });
 export type RunSummary = z.infer<typeof RunSummary>;
