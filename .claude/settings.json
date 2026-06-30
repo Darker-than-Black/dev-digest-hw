@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/engineering-insights-stop.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking session insights..."
+          }
+        ]
+      }
+    ]
+  }
+}
