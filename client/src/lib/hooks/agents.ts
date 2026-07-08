@@ -3,7 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Agent, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
+import type { Agent, AgentSkillLink, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
 
 export function useAgents() {
   return useQuery({
@@ -77,6 +77,42 @@ export function useDeleteAgent() {
       qc.invalidateQueries({ queryKey: ["agents"] });
       qc.removeQueries({ queryKey: ["agent", id] });
     },
+  });
+}
+
+// ---- agent ↔ skill links (Agent → Skills tab) ----------------------------
+
+/** Ordered skill links for an agent (with per-link enabled). */
+export function useAgentSkills(agentId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["agent-skills", agentId],
+    queryFn: () => api.get<AgentSkillLink[]>(`/agents/${agentId}/skills`),
+    enabled: !!agentId,
+  });
+}
+
+/** Replace the whole ordered set of links (reorder + carry enabled). */
+export function useSetAgentSkills() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      agentId,
+      skills,
+    }: {
+      agentId: string;
+      skills: { skill_id: string; enabled?: boolean }[];
+    }) => api.post<AgentSkillLink[]>(`/agents/${agentId}/skills`, { skills }),
+    onSuccess: (data, { agentId }) => qc.setQueryData(["agent-skills", agentId], data),
+  });
+}
+
+/** Toggle a single link's per-agent enabled flag. */
+export function useToggleAgentSkill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId, skillId, enabled }: { agentId: string; skillId: string; enabled: boolean }) =>
+      api.patch<AgentSkillLink[]>(`/agents/${agentId}/skills/${skillId}`, { enabled }),
+    onSuccess: (data, { agentId }) => qc.setQueryData(["agent-skills", agentId], data),
   });
 }
 

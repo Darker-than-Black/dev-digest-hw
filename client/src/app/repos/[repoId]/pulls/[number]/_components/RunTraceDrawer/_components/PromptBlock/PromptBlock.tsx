@@ -5,6 +5,7 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Button, Icon, Modal, disclosureProps } from "@devdigest/ui";
+import { estimateTokens } from "@/lib/tokens";
 import { s } from "../../styles";
 import { PromptModalBody } from "../PromptModalBody";
 
@@ -36,6 +37,9 @@ export function PromptBlock({ label, text, color }: { label: string; text: strin
         <span style={s.promptDot(color)} />
         <span style={s.promptLabel}>{label}</span>
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+            ~{estimateTokens(text).toLocaleString()} tok
+          </span>
           <button
             type="button"
             title={t("trace.prompt.copy")}

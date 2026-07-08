@@ -38,6 +38,12 @@ A new column = edit all of: `constants.ts` `GRID` track string (add width) + `CO
 right-aligns only the **last** key (`i === COLUMN_KEYS.length-1`), so insert before `updated`
 to keep left-alignment. Miss one and columns misalign silently.
 
+### Agent-editor tabs live in THREE lockstep places — miss one and `?tab=` silently resets
+Adding an editor tab (e.g. Skills) requires: `AgentEditor/constants.ts` `TABS` (label+icon), the
+`VALID_TABS` allow-list in `agents/[id]/page.tsx` (gates `?tab=`), AND a render branch in
+`AgentEditor.tsx`. The page's `VALID_TABS.includes(...) ? ... : "config"` is the trap: forget it
+and the tab renders in the bar but every deep-link falls back to Config with no error.
+
 ### Cost format = shared `formatCost` in `components/RunCostBadge`
 `formatCost(usd)` = `null → "—"`, else `$` + `Number(usd.toPrecision(3))` (3 sig figs, trailing
 zeros stripped: 0.06→"$0.06", 0.0013→"$0.0013"). Reused by `RunCostBadge` (PR list + timeline)
@@ -85,6 +91,20 @@ mid-render. Fix: compute next value from current state in the event handler and 
 callback **outside** the updater (`setOpenSev(next); if(next) onOpenSeverity?.(next)`). Never call
 a prop/parent setter from within a `setState(updater)`.
 
+### Never import `@devdigest/shared` as a RUNTIME value in client code — types only
+`client/src/vendor/shared` re-exports with `.js` extensions Next/webpack can't resolve
+(`Can't resolve './contracts/findings.js'`). Type-only imports are erased so the barrel never
+loads — but importing a zod schema as a *value* (`SkillType.options`, `SkillSlug.safeParse(...)`)
+bundles the whole barrel and breaks the build at the importing page. Mirror the constant/regex
+locally instead (`SKILL_TYPES`, `isValidSlug` in `app/skills/helpers.ts`) and keep
+`import type { … } from "@devdigest/shared"`. Complements the "contracts vendored twice" note above.
+
+### `Record<string, IconName>` index → `IconName | undefined`, unassignable to `Icon`
+Under `noUncheckedIndexedAccess`, indexing `const M: Record<string, IconName>` yields
+`IconName | undefined`, which fails when passed to a component prop typed as a bare `IconName`
+(e.g. `<StubTab icon={M[key]} />`). Type the lookup with explicit keys instead:
+`const STUB_ICON: { evals: IconName; stats: IconName } = {…}`. Same trap for any icon/color map.
+
 ## Session Notes
 
 ### 2026-07-01 — cost display in PR list, timeline, trace drawer
@@ -100,6 +120,16 @@ clicking a finding deep-links `?tab=findings&finding=<id>` → `FindingsTab` ope
 accordion by finding id + scrolls/flashes. Server adds per-severity counts to `PrMeta` — see
 [../server/insights.md](../server/insights.md). Spec: [specs/findings-by-severity.md](specs/findings-by-severity.md).
 First design (in-place card filter) was scrapped as a "bug" — user wanted the popover.
+
+### 2026-07-09 — Skills Lab page + Agent Skills tab + trace token badge
+New `/skills` split-view (`_components/SkillsView` list + `SkillDetail` Config/Preview/Versions;
+Evals/Stats stubbed) with a line-numbered body editor (`SkillBodyEditor`, `unsaved` + live token
+count via `lib/tokens.ts`), `react-markdown` Preview, and a `diff`-powered Versions tab
+(Diff + Restore). `AddSkillModal` does create + base64 `.md`/`.zip` import (preview→confirm, trust
+warning, ignored-files list). Agent editor gains a drag-reorder + checkbox `SkillsTab`. Reused
+existing `Skill`/`AgentSkillLink` contracts (edited BOTH vendored copies). Nav: "SKILLS LAB" group.
+Copy in `messages/en/skills.json` (rewrote the older starter draft). Server →
+[../server/insights.md](../server/insights.md).
 
 ## Open Questions
 

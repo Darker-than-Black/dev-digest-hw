@@ -7,6 +7,12 @@ import {
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
 } from './seed-prompts.js';
+import {
+  SEED_SKILLS,
+  SEED_AGENT_SKILLS,
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
+} from './seed-skills.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -175,6 +181,34 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
+  // ---- skills (Skills Lab demo set) ----
+  // Idempotent upsert by (workspaceId, name). Each new skill records body v1 in
+  // skill_versions so the Versions tab has history to show.
+  for (const sk of SEED_SKILLS) {
+    const [existing] = await db
+      .select()
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, sk.name)));
+    if (existing) continue;
+    const [row] = await db
+      .insert(t.skills)
+      .values({
+        workspaceId,
+        name: sk.name,
+        description: sk.description,
+        type: sk.type,
+        source: sk.source,
+        body: sk.body,
+        enabled: true,
+        version: 1,
+      })
+      .returning();
+    await db
+      .insert(t.skillVersions)
+      .values({ skillId: row!.id, version: 1, body: sk.body })
+      .onConflictDoNothing();
+  }
+
   // ---- built-in agents (the three starter presets) ----
   // Prompt bodies live in ./seed-prompts.ts (mirrored in docs/agent-prompts/*.md).
   const seedAgents: Array<typeof t.agents.$inferInsert> = [
@@ -211,6 +245,29 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    // Skill-driven agents (Skills feature). Each links its skills below.
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description: 'Checks test quality: uncovered branches, missed corner cases, over-mocking, flakes.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description: 'Flags breaking route-signature and response-shape changes callers depend on.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
   ];
   for (const a of seedAgents) {
     const [existing] = await db
@@ -218,6 +275,26 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- link skills to the skill-driven agents (idempotent) ----
+  for (const [agentName, skillNames] of Object.entries(SEED_AGENT_SKILLS)) {
+    const [agent] = await db
+      .select()
+      .from(t.agents)
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentName)));
+    if (!agent) continue;
+    for (let i = 0; i < skillNames.length; i++) {
+      const [skill] = await db
+        .select()
+        .from(t.skills)
+        .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, skillNames[i]!)));
+      if (!skill) continue;
+      await db
+        .insert(t.agentSkills)
+        .values({ agentId: agent.id, skillId: skill.id, order: i, enabled: true })
+        .onConflictDoNothing();
+    }
   }
 
   return { workspaceId, userId };

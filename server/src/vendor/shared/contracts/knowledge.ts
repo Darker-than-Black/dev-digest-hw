@@ -118,6 +118,15 @@ export type SkillType = z.infer<typeof SkillType>;
 export const SkillSource = z.enum(['manual', 'imported_url', 'extracted', 'community']);
 export type SkillSource = z.infer<typeof SkillSource>;
 
+// A skill's `name` is a kebab-case slug — unique per workspace, doubles as the
+// `<slug>.md` filename in the editor and a stable human-readable identifier.
+export const SkillSlug = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use a kebab-case slug: lowercase letters, digits, hyphens');
+export type SkillSlug = z.infer<typeof SkillSlug>;
+
 export const Skill = z.object({
   id: z.string(),
   name: z.string(),
@@ -130,6 +139,29 @@ export const Skill = z.object({
   evidence_files: z.array(z.string()).nullish(),
 });
 export type Skill = z.infer<typeof Skill>;
+
+// One immutable body snapshot from `skill_versions`. Every save that changes the
+// body records one, so eval/versions stay reproducible against the exact text.
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+// Result of parsing an uploaded `.md`/`.zip` WITHOUT persisting anything — the
+// user reviews this preview before confirming. `ignored_files` lists archive
+// entries that were skipped (scripts/binaries are never extracted or executed).
+export const SkillImportPreview = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  source: SkillSource,
+  body: z.string(),
+  ignored_files: z.array(z.string()),
+});
+export type SkillImportPreview = z.infer<typeof SkillImportPreview>;
 
 export const CommunitySkill = z.object({
   name: z.string(),
@@ -195,6 +227,9 @@ export const AgentSkillLink = z.object({
   agent_id: z.string(),
   skill_id: z.string(),
   order: z.number().int(),
+  // Per-agent mute switch (Agent → Skills tab checkbox). The skill's body reaches
+  // this agent's prompt only when BOTH this and the skill's own `enabled` are true.
+  enabled: z.boolean(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
 
