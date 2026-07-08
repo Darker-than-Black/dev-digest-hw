@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { Icon } from "@devdigest/ui";
+import { Icon, disclosureProps } from "@devdigest/ui";
 import { s } from "../../styles";
 
 export function TraceSection({
@@ -22,7 +22,7 @@ export function TraceSection({
   const I = Icon[icon];
   return (
     <div style={s.section}>
-      <div onClick={() => setOpen((o) => !o)} style={s.sectionHead}>
+      <div {...disclosureProps(() => setOpen((o) => !o), open)} style={s.sectionHead}>
         <I size={15} style={s.sectionIcon} />
         <span style={s.sectionTitle}>{title}</span>
         {right}

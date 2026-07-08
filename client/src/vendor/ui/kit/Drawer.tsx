@@ -1,5 +1,6 @@
 import React from "react";
 import { IconBtn } from "../primitives";
+import { useDialogA11y } from "./useDialogA11y";
 
 export function Drawer({
   width = 720,
@@ -16,16 +17,23 @@ export function Drawer({
   children?: React.ReactNode;
   footer?: React.ReactNode;
 }) {
+  const dialogRef = useDialogA11y(onClose);
+  const titleId = React.useId();
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", justifyContent: "flex-end", zIndex: 50 }}>
       <div
+        aria-hidden="true"
         onClick={onClose}
         style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)", animation: "ddfadein .15s ease" }}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
         style={{
+          outline: "none",
           position: "relative",
           width,
           maxWidth: "94%",
@@ -47,7 +55,7 @@ export function Drawer({
           }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.01em" }}>{title}</div>
+            <div id={titleId} style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.01em" }}>{title}</div>
             {subtitle && (
               <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>{subtitle}</div>
             )}

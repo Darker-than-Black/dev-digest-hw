@@ -67,6 +67,15 @@ assignable from `(s: shared.Severity)=>void` (param contravariance: INFO can't f
 For interactive severity props use the 3-value `Sev` exported from `SeverityCounters`, not ui's
 `Severity`.
 
+### `@devdigest/ui` root barrel in a Server Component crashes — pulls recharts into RSC
+The root barrel `vendor/ui/index.ts` re-exports `charts/*`, which import recharts (a class
+component). Importing `{ Skeleton }`/`{ EmptyState }` from `@devdigest/ui` into a **Server
+Component** (`app/loading.tsx`, `app/not-found.tsx`) drags recharts into the RSC graph →
+`TypeError: Super expression must either be null or a function` and a 500 on every route using
+that fallback. Pages don't hit it because they're `"use client"`. Rule: from a Server Component,
+import UI from the narrow sub-barrel `@/vendor/ui/primitives` (no charts), not the root barrel —
+or mark the file `"use client"`. See `app/loading.tsx`, `app/not-found.tsx`.
+
 ## Recurring Errors & Fixes
 
 ### "Cannot update a component while rendering a different component" — callback in a setState updater

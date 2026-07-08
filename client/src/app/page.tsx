@@ -6,28 +6,31 @@ import { useRouter } from "next/navigation";
 import { useRepos } from "../lib/hooks";
 import { AppShell } from "../components/app-shell";
 import { PageContainer } from "../components/page-shell";
-import { EmptyState, Button, Skeleton } from "@devdigest/ui";
+import { EmptyState, Skeleton } from "@devdigest/ui";
 
 export default function HomePage() {
   const router = useRouter();
-  const { data: repos, isLoading, isError } = useRepos();
+  const { data: repos, isLoading } = useRepos();
 
+  // Redirect to the first repo once loaded. While redirecting, keep showing the
+  // skeleton (not an intermediate "taking you…" screen) so there's no flash.
+  const redirecting = !!repos && repos.length > 0;
   React.useEffect(() => {
-    if (repos && repos.length > 0) {
-      router.replace(`/repos/${repos[0]!.id}/pulls`);
+    if (redirecting) {
+      router.replace(`/repos/${repos![0]!.id}/pulls`);
     }
-  }, [repos, router]);
+  }, [redirecting, repos, router]);
 
   return (
     <AppShell crumb={[{ label: "DevDigest" }]}>
       <PageContainer title="Welcome to DevDigest" subtitle="Local-first AI PR review">
-        {isLoading ? (
+        {isLoading || redirecting ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 480 }}>
             <Skeleton height={20} width={240} />
             <Skeleton height={48} />
             <Skeleton height={48} />
           </div>
-        ) : isError || !repos || repos.length === 0 ? (
+        ) : (
           <EmptyState
             icon="GitBranch"
             title="No repositories yet"
@@ -35,13 +38,6 @@ export default function HomePage() {
             cta="Add repository"
             onCta={() => router.push("/onboarding")}
           />
-        ) : (
-          <div>
-            <p style={{ color: "var(--text-secondary)", marginBottom: 14 }}>Taking you to your repository…</p>
-            <Button kind="primary" onClick={() => router.push(`/repos/${repos[0]!.id}/pulls`)}>
-              Open {repos[0]!.full_name}
-            </Button>
-          </div>
         )}
       </PageContainer>
     </AppShell>
