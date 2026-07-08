@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pr-self-review-gate.sh\"",
+            "timeout": 10,
+            "statusMessage": "PR self-review gate..."
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
