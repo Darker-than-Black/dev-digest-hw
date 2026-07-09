@@ -161,6 +161,16 @@ export interface RepoIntel {
   getUnresolvedReferences(repoId: string, files: string[]): Promise<RefRow[]>;
   /** Top-N file paths by rank, filtered of tests/configs. */
   getConventionSamples(repoId: string, n: number): Promise<string[]>;
+  /**
+   * Raw file contents from the repo's on-disk clone. Per path returns
+   * `{ path, content }` where `content` is the file text, or `null` if the
+   * file is missing/unreadable, the repo has no clone, or indexing is
+   * disabled. NEVER throws (degrades to all-`null`).
+   */
+  readFiles(
+    repoId: string,
+    paths: string[],
+  ): Promise<Array<{ path: string; content: string | null }>>;
 
   // --- T3: onboarding reading-path + critical paths (graph required) ------
   getTopFilesByRank(

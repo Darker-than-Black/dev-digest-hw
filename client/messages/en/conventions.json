@@ -3,24 +3,54 @@
     "crumbLab": "Skills Lab",
     "crumbConventions": "Conventions",
     "headingPrefix": "Conventions in ",
-    "repoFallback": "repo",
+    "repoFallback": "this repo",
     "subtitle": "Scan the cloned repo to surface house-rules — each backed by evidence you can turn into a Skill.",
+    "detectedFrom": "Detected from {count, plural, one {# sample file} other {# sample files}}",
     "scanning": "Scanning…",
     "rescan": "Re-scan",
+    "deselectAll": "Deselect all",
+    "createSkill": "Create skill",
+    "acceptedCounter": "{accepted} of {total} accepted",
     "runExtraction": "Run extraction",
-    "extractionFailed": "Extraction failed",
+    "extractionFailed": "Extraction failed.",
     "loadError": "Could not load conventions.",
     "empty": {
       "title": "No conventions extracted yet",
       "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
       "cta": "Run extraction"
     },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    "noRepo": {
+      "title": "No repository selected",
+      "body": "Pick a repository from the switcher to scan it for conventions."
+    }
   },
   "card": {
     "confidence": "Confidence",
+    "accept": "Accept",
     "accepted": "Accepted",
-    "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "reject": "Reject",
+    "edit": "Edit",
+    "edited": "edited",
+    "saveEdit": "Save",
+    "cancelEdit": "Cancel"
+  },
+  "modal": {
+    "title": "Create skill from conventions",
+    "mergedBanner": "Merged from {count, plural, one {# accepted convention} other {# accepted conventions}}. Edit anything before saving.",
+    "loading": "Assembling draft from accepted conventions…",
+    "loadError": "Could not build the draft.",
+    "retry": "Retry",
+    "nameLabel": "Name",
+    "namePlaceholder": "repo-conventions",
+    "descriptionLabel": "Description",
+    "typeLabel": "Type",
+    "enabledLabel": "Enabled",
+    "enabledOn": "Enabled for agents",
+    "enabledOff": "Disabled",
+    "bodyLabel": "Skill body",
+    "create": "Create skill",
+    "creating": "Creating…",
+    "cancel": "Cancel",
+    "created": "Created skill \"{name}\"."
   }
 }

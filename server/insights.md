@@ -60,6 +60,16 @@ nothing downstream complained. Wiring point: `runOneAgent`, before `reviewPullRe
 `this.agents.linkedSkills(agent.id)`, filter `skill.enabled && link.enabled`, keep link order,
 map `.body`. `container.agentsRepo` is the `AgentsRepository` (owns the agent side of the join).
 
+### A live review needs a real diff — seeded PRs with NULL `pr_files.patch` review to nothing
+`modules/reviews/diff-loader.ts` tries `container.git.diff(base…head)` first, then falls back to
+reconstructing a unified diff from `pr_files` rows — but only for rows where `patch` is non-null
+(`if (!f.patch) continue`). The seed PR #482 (`acme/payments-api`, `clone_path=null`) stores
+`pr_files` with `patch: null` and pre-baked `reviews`/`findings` for DISPLAY only, so a *live*
+review of it loads an EMPTY diff and the LLM has nothing to chew on. To exercise a real run
+(e.g. skills on/off experiments) you need a PR whose `pr_files.patch` holds actual `@@` hunks:
+either a repo with a real clone, or insert a synthetic PR row + `pr_files(patch=<hunks>)` — the
+loader prepends the `diff --git`/`---`/`+++` headers itself, so store only the hunk body.
+
 ### `AgentVersionConfig.skills` is a bare `string[]` — don't snapshot objects into it
 `agent_versions.config_json.skills` is validated by `AgentVersionConfig` = `z.array(z.string())`
 and re-parsed in `toAgentVersionDto` on read. Tempting to record per-link `{id,order,enabled}`
@@ -78,6 +88,13 @@ The app registers no multipart plugin, so there is no `req.file()`. The skill-im
 a normal JSON body `{ filename, content_base64 }` (Zod-validated like any route) and does
 `Buffer.from(content_base64, 'base64')`. Enforce a size cap on the decoded buffer. Follow this
 shape for any future upload rather than wiring multipart.
+
+### `drizzle-kit generate` rename-resolver is INTERACTIVE — hangs on piped stdin
+Dropping a column while adding others makes drizzle-kit ask "created or renamed from X?"
+per new column — a TTY select prompt. There is no `--yes`; piping (`yes '' | pnpm
+db:generate`) does NOT answer it, it hangs then dies (exit 144). Fix: keep the old column
+in the schema so the migration is purely ADDITIVE (no drop → no rename question). We kept
+an unused `conventions.accepted` boolean beside the new `status` enum for exactly this.
 
 ### `fflate` for in-memory zip — guard entries, paths, and decompressed size
 `unzipSync(buf)` → `Record<path, Uint8Array>`, fully in memory (no disk, no native dep). Skip
@@ -107,6 +124,15 @@ a COUNT-by-severity aggregate in `modules/pulls/routes.ts` (mirrors score/cost).
 reviewed → UI renders `—`. Test: `reviews.it.test.ts` inserts mixed-severity findings directly
 (grounding would drop them) and asserts the list breakdown + `null` for an unreviewed PR. Client
 UI (popover + navigate) → [client/insights.md](../client/insights.md).
+
+### 2026-07-09 — Conventions Extractor module (extract → gate → skill-draft)
+New `modules/conventions/` (flat, mirrors `agents/`). `POST /repos/:id/conventions/extract`
+is synchronous: samples (configs by name ∪ top-12 via `getConventionSamples`) → LLM
+(`resolveFeatureModel('conventions')`, structured `{candidates:[…]}` root) → code-side
+evidence gate (`verifyEvidence` in `helpers.ts`: whitespace-normalized snippet substring +
+line-range ±3) drops ungrounded proposals → persist `pending`. Skill is NOT created here:
+`skill-draft` assembles editable markdown, client saves via existing `POST /skills`. Extended
+the reserved `conventions` table/`ConventionCandidate` contract (migration `0012`, additive).
 
 ### 2026-07-09 — Skills feature (CRUD module + per-link enable + prompt wiring)
 New `modules/skills/` (routes/service/repository/helpers/constants/import) over the pre-existing

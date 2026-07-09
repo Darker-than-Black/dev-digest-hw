@@ -99,6 +99,12 @@ bundles the whole barrel and breaks the build at the importing page. Mirror the 
 locally instead (`SKILL_TYPES`, `isValidSlug` in `app/skills/helpers.ts`) and keep
 `import type { … } from "@devdigest/shared"`. Complements the "contracts vendored twice" note above.
 
+### `pnpm build` while `next dev` is live corrupts `.next` → `Cannot find module './975.js'`
+A production build writes the same `.next/` the running dev server serves from, clobbering
+its webpack chunk manifest → every route 500s with `Cannot find module './<n>.js'`. It is a
+cache artifact, NOT a code bug. Don't run `pnpm build` against a live dev server; to verify a
+prod build, stop dev first. Recover by restarting `next dev` (rebuilds `.next` from scratch).
+
 ### `Record<string, IconName>` index → `IconName | undefined`, unassignable to `Icon`
 Under `noUncheckedIndexedAccess`, indexing `const M: Record<string, IconName>` yields
 `IconName | undefined`, which fails when passed to a component prop typed as a bare `IconName`

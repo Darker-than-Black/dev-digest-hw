@@ -173,15 +173,65 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+export const ConventionStatus = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
+// A persisted convention candidate (one row of the `conventions` table), after
+// the code-side evidence gate and ready for accept/reject/edit in the UI.
 export const ConventionCandidate = z.object({
   id: z.string(),
+  category: z.string(),
   rule: z.string(),
   evidence_path: z.string(),
   evidence_snippet: z.string(),
+  evidence_start_line: z.number().int().nullish(),
+  evidence_end_line: z.number().int().nullish(),
   confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  status: ConventionStatus,
+  edited: z.boolean(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+// Raw shape the LLM returns per proposal — no id/status yet; the service adds an
+// id, runs the evidence gate, and persists survivors as `pending` candidates.
+export const ConventionProposal = z.object({
+  category: z.string(),
+  rule: z.string(),
+  evidence_path: z.string(),
+  evidence_snippet: z.string(),
+  evidence_start_line: z.number().int().nullish(),
+  evidence_end_line: z.number().int().nullish(),
+  confidence: z.number().min(0).max(1),
+});
+export type ConventionProposal = z.infer<typeof ConventionProposal>;
+
+// Response of POST /repos/:id/conventions/extract.
+export const ExtractResult = z.object({
+  candidates: z.array(ConventionCandidate),
+  scanned_files: z.number().int(),
+});
+export type ExtractResult = z.infer<typeof ExtractResult>;
+
+// Body of PATCH /conventions/:id — accept/reject and/or edit rule+category.
+export const UpdateConventionBody = z.object({
+  status: ConventionStatus.optional(),
+  rule: z.string().min(1).optional(),
+  category: z.string().optional(),
+});
+export type UpdateConventionBody = z.infer<typeof UpdateConventionBody>;
+
+// Editable skill assembled from the accepted conventions (mirrors
+// SkillImportPreview). The user tweaks it in the "Create skill" modal, then it
+// is saved via the existing POST /skills.
+export const ConventionSkillDraft = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  source: SkillSource,
+  body: z.string(),
+  evidence_files: z.array(z.string()),
+});
+export type ConventionSkillDraft = z.infer<typeof ConventionSkillDraft>;
 
 // ---- Agents ----
 // 'openrouter' routes through the OpenAI-compatible API (OpenAIProvider with a
