@@ -118,6 +118,15 @@ export type SkillType = z.infer<typeof SkillType>;
 export const SkillSource = z.enum(['manual', 'imported_url', 'extracted', 'community']);
 export type SkillSource = z.infer<typeof SkillSource>;
 
+// A skill's `name` is a kebab-case slug — unique per workspace, doubles as the
+// `<slug>.md` filename in the editor and a stable human-readable identifier.
+export const SkillSlug = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use a kebab-case slug: lowercase letters, digits, hyphens');
+export type SkillSlug = z.infer<typeof SkillSlug>;
+
 export const Skill = z.object({
   id: z.string(),
   name: z.string(),
@@ -131,6 +140,29 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
+// One immutable body snapshot from `skill_versions`. Every save that changes the
+// body records one, so eval/versions stay reproducible against the exact text.
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+// Result of parsing an uploaded `.md`/`.zip` WITHOUT persisting anything — the
+// user reviews this preview before confirming. `ignored_files` lists archive
+// entries that were skipped (scripts/binaries are never extracted or executed).
+export const SkillImportPreview = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  source: SkillSource,
+  body: z.string(),
+  ignored_files: z.array(z.string()),
+});
+export type SkillImportPreview = z.infer<typeof SkillImportPreview>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),
@@ -141,15 +173,65 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+export const ConventionStatus = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
+// A persisted convention candidate (one row of the `conventions` table), after
+// the code-side evidence gate and ready for accept/reject/edit in the UI.
 export const ConventionCandidate = z.object({
   id: z.string(),
+  category: z.string(),
   rule: z.string(),
   evidence_path: z.string(),
   evidence_snippet: z.string(),
+  evidence_start_line: z.number().int().nullish(),
+  evidence_end_line: z.number().int().nullish(),
   confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  status: ConventionStatus,
+  edited: z.boolean(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+// Raw shape the LLM returns per proposal — no id/status yet; the service adds an
+// id, runs the evidence gate, and persists survivors as `pending` candidates.
+export const ConventionProposal = z.object({
+  category: z.string(),
+  rule: z.string(),
+  evidence_path: z.string(),
+  evidence_snippet: z.string(),
+  evidence_start_line: z.number().int().nullish(),
+  evidence_end_line: z.number().int().nullish(),
+  confidence: z.number().min(0).max(1),
+});
+export type ConventionProposal = z.infer<typeof ConventionProposal>;
+
+// Response of POST /repos/:id/conventions/extract.
+export const ExtractResult = z.object({
+  candidates: z.array(ConventionCandidate),
+  scanned_files: z.number().int(),
+});
+export type ExtractResult = z.infer<typeof ExtractResult>;
+
+// Body of PATCH /conventions/:id — accept/reject and/or edit rule+category.
+export const UpdateConventionBody = z.object({
+  status: ConventionStatus.optional(),
+  rule: z.string().min(1).optional(),
+  category: z.string().optional(),
+});
+export type UpdateConventionBody = z.infer<typeof UpdateConventionBody>;
+
+// Editable skill assembled from the accepted conventions (mirrors
+// SkillImportPreview). The user tweaks it in the "Create skill" modal, then it
+// is saved via the existing POST /skills.
+export const ConventionSkillDraft = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  source: SkillSource,
+  body: z.string(),
+  evidence_files: z.array(z.string()),
+});
+export type ConventionSkillDraft = z.infer<typeof ConventionSkillDraft>;
 
 // ---- Agents ----
 export const Provider = z.enum(['openai', 'anthropic', 'openrouter']);
@@ -189,5 +271,8 @@ export const AgentSkillLink = z.object({
   agent_id: z.string(),
   skill_id: z.string(),
   order: z.number().int(),
+  // Per-agent mute switch (Agent → Skills tab checkbox). The skill's body reaches
+  // this agent's prompt only when BOTH this and the skill's own `enabled` are true.
+  enabled: z.boolean(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;

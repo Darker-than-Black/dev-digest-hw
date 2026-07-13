@@ -14,6 +14,7 @@ import {
   ConfidenceNum,
   Button,
   Markdown,
+  disclosureProps,
   type Severity,
   type Category,
 } from "@devdigest/ui";
@@ -53,7 +54,7 @@ export function FindingCard({
 
   return (
     <div data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
-      <div onClick={() => setExpanded((e) => !e)} style={s.header}>
+      <div {...disclosureProps(() => setExpanded((e) => !e), expanded)} style={s.header}>
         <div style={s.badgeWrap}>
           <SeverityBadge severity={f.severity as Severity} compact />
         </div>

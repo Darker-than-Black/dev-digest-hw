@@ -38,6 +38,12 @@ A new column = edit all of: `constants.ts` `GRID` track string (add width) + `CO
 right-aligns only the **last** key (`i === COLUMN_KEYS.length-1`), so insert before `updated`
 to keep left-alignment. Miss one and columns misalign silently.
 
+### Agent-editor tabs live in THREE lockstep places — miss one and `?tab=` silently resets
+Adding an editor tab (e.g. Skills) requires: `AgentEditor/constants.ts` `TABS` (label+icon), the
+`VALID_TABS` allow-list in `agents/[id]/page.tsx` (gates `?tab=`), AND a render branch in
+`AgentEditor.tsx`. The page's `VALID_TABS.includes(...) ? ... : "config"` is the trap: forget it
+and the tab renders in the bar but every deep-link falls back to Config with no error.
+
 ### Cost format = shared `formatCost` in `components/RunCostBadge`
 `formatCost(usd)` = `null → "—"`, else `$` + `Number(usd.toPrecision(3))` (3 sig figs, trailing
 zeros stripped: 0.06→"$0.06", 0.0013→"$0.0013"). Reused by `RunCostBadge` (PR list + timeline)
@@ -67,6 +73,15 @@ assignable from `(s: shared.Severity)=>void` (param contravariance: INFO can't f
 For interactive severity props use the 3-value `Sev` exported from `SeverityCounters`, not ui's
 `Severity`.
 
+### `@devdigest/ui` root barrel in a Server Component crashes — pulls recharts into RSC
+The root barrel `vendor/ui/index.ts` re-exports `charts/*`, which import recharts (a class
+component). Importing `{ Skeleton }`/`{ EmptyState }` from `@devdigest/ui` into a **Server
+Component** (`app/loading.tsx`, `app/not-found.tsx`) drags recharts into the RSC graph →
+`TypeError: Super expression must either be null or a function` and a 500 on every route using
+that fallback. Pages don't hit it because they're `"use client"`. Rule: from a Server Component,
+import UI from the narrow sub-barrel `@/vendor/ui/primitives` (no charts), not the root barrel —
+or mark the file `"use client"`. See `app/loading.tsx`, `app/not-found.tsx`.
+
 ## Recurring Errors & Fixes
 
 ### "Cannot update a component while rendering a different component" — callback in a setState updater
@@ -75,6 +90,26 @@ updater fn → React runs updaters during render, so the parent (`PRRowFindings`
 mid-render. Fix: compute next value from current state in the event handler and call the parent
 callback **outside** the updater (`setOpenSev(next); if(next) onOpenSeverity?.(next)`). Never call
 a prop/parent setter from within a `setState(updater)`.
+
+### Never import `@devdigest/shared` as a RUNTIME value in client code — types only
+`client/src/vendor/shared` re-exports with `.js` extensions Next/webpack can't resolve
+(`Can't resolve './contracts/findings.js'`). Type-only imports are erased so the barrel never
+loads — but importing a zod schema as a *value* (`SkillType.options`, `SkillSlug.safeParse(...)`)
+bundles the whole barrel and breaks the build at the importing page. Mirror the constant/regex
+locally instead (`SKILL_TYPES`, `isValidSlug` in `app/skills/helpers.ts`) and keep
+`import type { … } from "@devdigest/shared"`. Complements the "contracts vendored twice" note above.
+
+### `pnpm build` while `next dev` is live corrupts `.next` → `Cannot find module './975.js'`
+A production build writes the same `.next/` the running dev server serves from, clobbering
+its webpack chunk manifest → every route 500s with `Cannot find module './<n>.js'`. It is a
+cache artifact, NOT a code bug. Don't run `pnpm build` against a live dev server; to verify a
+prod build, stop dev first. Recover by restarting `next dev` (rebuilds `.next` from scratch).
+
+### `Record<string, IconName>` index → `IconName | undefined`, unassignable to `Icon`
+Under `noUncheckedIndexedAccess`, indexing `const M: Record<string, IconName>` yields
+`IconName | undefined`, which fails when passed to a component prop typed as a bare `IconName`
+(e.g. `<StubTab icon={M[key]} />`). Type the lookup with explicit keys instead:
+`const STUB_ICON: { evals: IconName; stats: IconName } = {…}`. Same trap for any icon/color map.
 
 ## Session Notes
 
@@ -91,6 +126,16 @@ clicking a finding deep-links `?tab=findings&finding=<id>` → `FindingsTab` ope
 accordion by finding id + scrolls/flashes. Server adds per-severity counts to `PrMeta` — see
 [../server/insights.md](../server/insights.md). Spec: [specs/findings-by-severity.md](specs/findings-by-severity.md).
 First design (in-place card filter) was scrapped as a "bug" — user wanted the popover.
+
+### 2026-07-09 — Skills Lab page + Agent Skills tab + trace token badge
+New `/skills` split-view (`_components/SkillsView` list + `SkillDetail` Config/Preview/Versions;
+Evals/Stats stubbed) with a line-numbered body editor (`SkillBodyEditor`, `unsaved` + live token
+count via `lib/tokens.ts`), `react-markdown` Preview, and a `diff`-powered Versions tab
+(Diff + Restore). `AddSkillModal` does create + base64 `.md`/`.zip` import (preview→confirm, trust
+warning, ignored-files list). Agent editor gains a drag-reorder + checkbox `SkillsTab`. Reused
+existing `Skill`/`AgentSkillLink` contracts (edited BOTH vendored copies). Nav: "SKILLS LAB" group.
+Copy in `messages/en/skills.json` (rewrote the older starter draft). Server →
+[../server/insights.md](../server/insights.md).
 
 ## Open Questions
 

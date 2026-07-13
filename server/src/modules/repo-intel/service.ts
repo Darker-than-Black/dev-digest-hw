@@ -632,6 +632,35 @@ export class RepoIntelService implements RepoIntel {
   }
 
   /**
+   * Raw file contents from the on-disk clone. Reads all paths in parallel;
+   * each entry is `{ path, content }` with `content` the file text or `null`
+   * when missing/unreadable. Degraded gate: flag off or missing clone → every
+   * entry `content: null`. NEVER throws.
+   */
+  async readFiles(
+    repoId: string,
+    paths: string[],
+  ): Promise<Array<{ path: string; content: string | null }>> {
+    if (paths.length === 0) return [];
+    if (!this.container.config.repoIntelEnabled) {
+      return paths.map((path) => ({ path, content: null }));
+    }
+
+    const repo = await this.repo.getRepoBasics(repoId);
+    if (!repo || !repo.clonePath) {
+      return paths.map((path) => ({ path, content: null }));
+    }
+
+    const clonePath = repo.clonePath;
+    return Promise.all(
+      paths.map(async (path) => ({
+        path,
+        content: await readClone(clonePath, path),
+      })),
+    );
+  }
+
+  /**
    * Top-N file paths by rank DESC, dropping tests/configs/migrations and any
    * caller-supplied `exclude` substrings. Over-fetches by 10× before filtering
    * so the post-filter still yields N where possible.

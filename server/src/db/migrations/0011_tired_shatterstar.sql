@@ -1,0 +1,2 @@
+ALTER TABLE "agent_skills" ADD COLUMN "enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "skills_workspace_name_unique" ON "skills" USING btree ("workspace_id","name");

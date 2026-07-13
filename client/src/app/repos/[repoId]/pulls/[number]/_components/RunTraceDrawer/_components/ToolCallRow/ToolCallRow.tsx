@@ -3,7 +3,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon } from "@devdigest/ui";
+import { Icon, disclosureProps } from "@devdigest/ui";
 import type { ToolCall } from "@devdigest/shared";
 import { s } from "../../styles";
 
@@ -12,7 +12,7 @@ export function ToolCallRow({ tc }: { tc: ToolCall }) {
   const [open, setOpen] = React.useState(false);
   return (
     <div style={s.toolRow}>
-      <div onClick={() => setOpen((o) => !o)} style={s.toolHead}>
+      <div {...disclosureProps(() => setOpen((o) => !o), open)} style={s.toolHead}>
         <Icon.Wrench size={13} style={s.toolIcon} />
         <span className="mono" style={s.toolName}>
           {tc.tool}

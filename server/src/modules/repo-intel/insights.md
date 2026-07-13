@@ -14,6 +14,14 @@ put the *why it bit us* here.
 
 ## Codebase Patterns
 
+### `getConventionSamples` returns PATHS only — and silently drops configs/tests
+`getConventionSamples(repoId, n)` → `getTopFilesByRank`, which excludes configs, tests
+and migrations via `isJunkPath`. So a "sample the repo" caller gets ranked SOURCE paths
+only — no eslint/tsconfig/prettier, and no file CONTENT. To read content, use
+`readFiles(repoId, paths)` (added 2026-07-09, wraps the private `readClone()`; returns
+`{path, content: null}` — never throws — when the clone is absent or repo-intel disabled).
+To include configs, gather them explicitly by filename at the clone root before calling.
+
 ## Tool & Library Notes
 
 ## Recurring Errors & Fixes

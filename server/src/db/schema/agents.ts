@@ -58,6 +58,10 @@ export const agentSkills = pgTable(
       .notNull()
       .references(() => skills.id, { onDelete: 'cascade' }),
     order: integer('order').notNull().default(0),
+    // Per-link enable (Agent → Skills tab). Independent of the skill's own
+    // `skills.enabled`: a skill can be globally on yet muted for one agent.
+    // A skill's body reaches an agent's prompt only when BOTH are true.
+    enabled: boolean('enabled').notNull().default(true),
   },
   (t) => ({ pk: primaryKey({ columns: [t.agentId, t.skillId] }) }),
 );

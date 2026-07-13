@@ -100,9 +100,9 @@ export function Dropdown({
         >
           {items.map((it, i) =>
             it.divider ? (
-              <div key={i} style={{ height: 1, background: "var(--border)", margin: "6px 0" }} />
+              <div key={`divider-${i}`} style={{ height: 1, background: "var(--border)", margin: "6px 0" }} />
             ) : (
-              <DropdownItem key={i} it={it} onClose={() => setOpen(false)} />
+              <DropdownItem key={it.label ?? i} it={it} onClose={() => setOpen(false)} />
             )
           )}
         </div>
