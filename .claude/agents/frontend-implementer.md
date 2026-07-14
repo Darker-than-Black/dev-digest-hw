@@ -10,7 +10,7 @@ description: >
   <example> Context: implementer is fanning out a plan. assistant: "Spawning frontend-implementer
   with the client work items and the ui-architecture / react / next skills the plan named."
   <commentary>FE-only execution with FE-scoped skills.</commentary></example>
-model: opus
+model: sonnet
 color: cyan
 tools: [Read, Edit, Write, Grep, Glob, Bash, Skill]
 ---

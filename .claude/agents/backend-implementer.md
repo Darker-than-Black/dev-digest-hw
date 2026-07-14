@@ -11,7 +11,7 @@ description: >
   implementer is fanning out a plan. assistant: "Spawning backend-implementer with the server work
   items and the onion / fastify / drizzle skills the plan named." <commentary>BE-only execution
   with BE-scoped skills.</commentary></example>
-model: opus
+model: sonnet
 color: orange
 tools: [Read, Edit, Write, Grep, Glob, Bash, Skill]
 ---

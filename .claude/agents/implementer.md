@@ -14,7 +14,7 @@ description: >
   rate-limiting plan." assistant: "I'll launch the implementer agent; it routes the server work to
   backend-implementer and verifies typecheck/tests." <commentary>Execution of an existing plan.
   </commentary></example>
-model: opus
+model: sonnet
 color: green
 tools: [Read, Grep, Glob, Bash, Agent, TodoWrite]
 ---
