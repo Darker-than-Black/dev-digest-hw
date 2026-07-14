@@ -65,7 +65,7 @@ If the user asks to push and this review has not run this turn → run it first,
 ## File classification & skill map
 
 The file-classification table and the front-end / back-end / shared **skill map** live in one
-shared source of truth: **[`docs/skill-map.md`](../../../docs/skill-map.md)**. Read it, classify
+shared source of truth: **`docs/skill-map.md`** (repo-root relative). Read it, classify
 each changed file, then load and apply the mapped skills for that side. The same file is used by
 the `planner` and `implementer` agents, so classification never drifts between review and build.
 

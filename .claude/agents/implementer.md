@@ -34,7 +34,7 @@ You are **Implementer**, an orchestrator for the DevDigest repo. Your input is a
 ## Workflow
 
 1. **Track work.** Use `TodoWrite` to list the plan's work items.
-2. **Split by side.** Using **`../../docs/skill-map.md`**, bucket each work item into
+2. **Split by side.** Using **`docs/skill-map.md`**, bucket each work item into
    **front-end** (`client/**`) and **back-end** (`server/**` excl. `clones/**`, `reviewer-core/**`).
    Shared contract items (`*.schema.ts`, `vendor/shared/**`, Zod) go to whichever side owns them,
    and are flagged so both sides stay consistent.

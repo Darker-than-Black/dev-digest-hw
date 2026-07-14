@@ -45,11 +45,20 @@ Read, in this order, only what's relevant to the task:
 
 ## Step 2 — Classify & map skills
 
-Read **`../../docs/skill-map.md`** (the single source of truth). For every work item:
+Read **`docs/skill-map.md`** (the single source of truth). For every work item:
 - Classify each affected file as **front-end** / **back-end** / **shared** / other / ignore.
 - Name the **exact skills** the implementer must load for that side (FE set, BE set, shared trio).
-- Use `ui-architecture` / `onion-architecture` reasoning yourself (load via `Skill`) to decide
-  *where* code belongs — that placement decision is the core of a good plan.
+
+**Consult any skill listed in `docs/skill-map.md` yourself, on demand, via the `Skill` tool** —
+your plan's quality drives the whole downstream build, so reason with the relevant skill *before*
+naming it in the plan. Load only the ones a given work item needs (do **not** preload all — you
+write no code, so you rarely need every skill at once). `docs/skill-map.md` is the single registry
+of which skills exist and which side they apply to; don't restate that list here.
+
+Use them for real planning decisions — e.g. load `drizzle-orm-patterns` + `postgresql-table-design`
+to decide a schema/index shape, `onion-architecture` / `ui-architecture` to decide *where* code
+belongs, `security` to spot an input-boundary risk. That placement/shape reasoning is the core of
+a good plan.
 
 ## Step 3 — Flag risks & gotchas
 

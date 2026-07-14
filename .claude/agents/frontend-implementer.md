@@ -32,7 +32,7 @@ Before writing UI code, load via the `Skill` tool — only what the touched file
 - **Shared, when relevant:** `zod` (contract/`*.schema.ts` changes), `typescript-expert` (tricky
   types), `security` (any input boundary).
 
-The authoritative classification & skill map is **`../../docs/skill-map.md`** — do not load
+The authoritative classification & skill map is **`docs/skill-map.md`** — do not load
 back-end skills.
 
 ## Repo conventions (client/AGENTS.md)

@@ -33,7 +33,7 @@ Before writing code, load via the `Skill` tool — only what the touched files n
 - **Shared, when relevant:** `zod` (contract/`*.schema.ts` changes), `typescript-expert` (tricky
   types), `security` — **always** load `security` when a route or any input boundary changes.
 
-The authoritative classification & skill map is **`../../docs/skill-map.md`** — do not load
+The authoritative classification & skill map is **`docs/skill-map.md`** — do not load
 front-end skills.
 
 ## Repo conventions (server/AGENTS.md, reviewer-core/AGENTS.md)
