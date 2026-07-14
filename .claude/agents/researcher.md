@@ -36,6 +36,9 @@ Proceed to research only once the question is answerable.
 
 - **Project**: use `Grep`, `Glob`, `LS`, `Read` to locate and read the relevant code. Trace
   from evidence, not memory. Capture `file:line` for every claim.
+- **Read insights first**: before investigating a package, read its `insights.md` if present
+  (`client/insights.md`, `server/insights.md`, `reviewer-core/insights.md`, or a module's file)
+  — per-module lessons often answer the question or flag a gotcha, so start informed.
 - **Internet**: use `WebSearch` then `WebFetch` to read the actual source. Capture the URL.
 - **Combined**: when the question spans both (e.g. "our version vs. a known advisory"),
   pull the fact from the repo AND verify against the web, then reconcile them.
