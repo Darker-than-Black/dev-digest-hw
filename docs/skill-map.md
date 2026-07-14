@@ -50,3 +50,14 @@ pure front-end task never pulls back-end rules into context, and vice-versa.
 
 **Reject rule:** ≥1 critical → do not push, list blockers, stop. Report faithfully — if a check
 failed, say so with the output; never claim clean when it isn't.
+
+## Meta / process skills (not file → side)
+
+These skills are **not** loaded by file classification — they act on a plan, a diff, or input data
+rather than on a changed source file, so they sit outside the FE/BE/shared tables above. They reuse
+the severity rubric here.
+
+- `plan-verifier` — given a plan + the changes, verifies **every** plan goal was met (met / partial /
+  missing); read-only, reports a per-goal verdict.
+- `doc-writer` — turns a plan / description / schema into documentation and routes it to the right
+  place in the repo (see `.claude/skills/doc-writer/references/doc-map.md`).
