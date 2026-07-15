@@ -1,9 +1,11 @@
 "use client";
 
 import React from "react";
-import { SectionLabel, Button } from "@devdigest/ui";
-import { DiffViewer, type DiffCommentApi } from "@/components/diff-viewer";
-import { usePrComments, useCreatePrComment } from "@/lib/hooks/reviews";
+import { useTranslations } from "next-intl";
+import { SectionLabel, Button, Chip } from "@devdigest/ui";
+import { DiffViewer, SmartDiffViewer, type DiffCommentApi } from "@/components/diff-viewer";
+import { usePrComments, useCreatePrComment, useSmartDiff, usePrReviews } from "@/lib/hooks/reviews";
+import { lastReview } from "@/lib/smart-diff";
 import { notify } from "@/lib/toast";
 import type { PrFile } from "@devdigest/shared";
 
@@ -16,12 +18,25 @@ interface DiffTabProps {
 }
 
 export function DiffTab({ prId, filesCount, files, canComment }: DiffTabProps) {
+  const t = useTranslations("shell");
   const { data: comments } = usePrComments(prId);
   const create = useCreatePrComment(prId);
   // Comments start hidden so the diff is clean by default — toggle to reveal.
   const [showComments, setShowComments] = React.useState(false);
 
+  // Smart Diff (risk-ordered layout + last-review overlay). Ephemeral view
+  // preference, not shareable state — plain useState, not searchParams.
+  const smartDiffQuery = useSmartDiff(prId);
+  const { data: reviewsData } = usePrReviews(prId);
+  const review = lastReview(reviewsData);
+  const [smartOrder, setSmartOrder] = React.useState(true);
+  const smartDiffUnavailable = smartDiffQuery.isLoading || smartDiffQuery.isError;
+
   const commentCount = comments?.length ?? 0;
+  const totals = files.reduce(
+    (acc, f) => ({ additions: acc.additions + f.additions, deletions: acc.deletions + f.deletions }),
+    { additions: 0, deletions: 0 },
+  );
 
   const commenting: DiffCommentApi = {
     comments: comments ?? [],
@@ -45,21 +60,49 @@ export function DiffTab({ prId, filesCount, files, canComment }: DiffTabProps) {
       <SectionLabel
         icon="Code"
         right={
-          commentCount > 0 ? (
-            <Button
-              kind="ghost"
-              size="sm"
-              icon={showComments ? "EyeOff" : "Eye"}
-              onClick={() => setShowComments((v) => !v)}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Chip
+              active={smartOrder}
+              disabled={smartDiffUnavailable}
+              onClick={() => setSmartOrder(true)}
             >
-              {showComments ? "Hide comments" : "Show comments"} ({commentCount})
-            </Button>
-          ) : undefined
+              {t("diffViewer.smartDiff.order.smart")}
+            </Chip>
+            <Chip active={!smartOrder} onClick={() => setSmartOrder(false)}>
+              {t("diffViewer.smartDiff.order.original")}
+            </Chip>
+            {commentCount > 0 && (
+              <Button
+                kind="ghost"
+                size="sm"
+                icon={showComments ? "EyeOff" : "Eye"}
+                onClick={() => setShowComments((v) => !v)}
+              >
+                {showComments ? "Hide comments" : "Show comments"} ({commentCount})
+              </Button>
+            )}
+          </div>
         }
       >
-        Files changed · {filesCount} files
+        {t("diffViewer.filesChangedHeader", {
+          count: filesCount,
+          additions: totals.additions,
+          deletions: totals.deletions,
+        })}
       </SectionLabel>
-      <DiffViewer files={files} commenting={commenting} />
+      {/* The smart panel must never be the reason the tab shows nothing — fall
+          back to the flat viewer whenever there's no smart-diff data yet
+          (loading, error, or simply toggled off). */}
+      {smartOrder && smartDiffQuery.data ? (
+        <SmartDiffViewer
+          smartDiff={smartDiffQuery.data}
+          files={files}
+          review={review}
+          commenting={commenting}
+        />
+      ) : (
+        <DiffViewer files={files} commenting={commenting} />
+      )}
     </section>
   );
 }

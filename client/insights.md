@@ -75,6 +75,17 @@ sibling cards in `_components/`). Keep new PR-detail cards on this pattern: the 
 container (fetches + owns loading/error/mutation state), `OverviewTab`/`page.tsx` only pass the
 id.
 
+### A shared folder's private (non-exported) internals can force colocation over route-local placement
+`ui-architecture`'s default is "start route-local (`_components/`), promote to a shared folder on
+the 2nd consumer." The Smart Diff components (`SmartDiffFileCard`, `SmartDiffGroupSection`,
+`SmartDiffViewer`, `SplitSuggestionBanner`) break that default on the *first* consumer: they live
+directly in `components/diff-viewer/` because they need `parsePatch`, `CodeLine`, the `s` style
+map, and `chevronFor` — internals the folder's `index.ts` barrel deliberately does NOT export (see
+the barrel's own comment: "Internals … stay private to this folder"). A route-local component
+can only import a folder's public barrel, so when a new component needs another folder's private
+internals, colocate inside that folder instead of duplicating the internals route-local. This is
+a deliberate exception, not a violation — will recur for any future diff-adjacent component.
+
 ### Vendored UI primitive missing a prop your feature needs → extend it in place, don't hand-roll
 `vendor/ui/primitives/IconBtn.tsx` had no `disabled`/`loading` affordance before the Intent card
 needed a "recompute, spin + disable while pending" icon button. Added `disabled?`/`loading?`
@@ -120,7 +131,13 @@ locally instead (`SKILL_TYPES`, `isValidSlug` in `app/skills/helpers.ts`) and ke
 `import type { … } from "@devdigest/shared"`. Complements the "contracts vendored twice" note above.
 This is also why `lib/feature-models.ts`'s `FEATURE_MODELS` is a hand-mirrored plain array rather
 than importing the server's — importing the real registry as a value would bundle the whole
-`vendor/shared` barrel.
+`vendor/shared` barrel. The same restriction forces duplicated **business logic**, not just data:
+`lib/smart-diff.ts`'s `lastReview()` (newest `kind==='review'` row) reimplements the identical
+rule already living in `server/src/modules/smart-diff/service.ts`, because a shared runtime
+helper would need a value import across the boundary. Treat this as the correct, accepted answer
+for any future cross-boundary business rule (not just constants) — don't chase a "shared util"
+refactor across `client`/`server`; instead keep both copies short, comment each with a pointer to
+its twin, and grep for the twin before changing either.
 
 ### `pnpm build` while `next dev` is live corrupts `.next` → `Cannot find module './975.js'`
 A production build writes the same `.next/` the running dev server serves from, clobbering
@@ -172,6 +189,16 @@ i18n reused existing `block.intent`/`unavailable`/`unavailableHint`, added `inSc
 (the types-only vendored mirror, separate from `lib/feature-models.ts`) was intentionally left
 un-synced — it's dead at runtime (client never imports `FEATURE_MODELS` as a value from
 `vendor/shared`) but is now stale text; worth a follow-up sweep if anyone diffs the two files.
+
+### 2026-07-15 — Smart Diff panel (Files-changed tab: risk groups + last-review overlay)
+New `SmartDiffViewer`/`SmartDiffGroupSection`/`SmartDiffFileCard`/`SplitSuggestionBanner`
+(`components/diff-viewer/`, colocated for barrel-private-internal access — see the new
+"private internals force colocation" pattern above) plus `lib/smart-diff.ts` (`lastReview`,
+`findingsByLine`, `topSeverity` — pure, no fetch). `DiffTab.tsx` gains a toggle (via two `Chip`s
+in `SectionLabel`'s `right` slot) between the existing unified `DiffViewer` and the new
+`SmartDiffViewer`; data comes from `useSmartDiff` (`lib/hooks/reviews.ts`). `vendor/ui/primitives/
+Chip.tsx` got a `disabled` prop — same "extend the vendored primitive in place" pattern as
+`IconBtn.tsx`'s `disabled`/`loading` (see above), not a new lesson. Server → [../server/insights.md](../server/insights.md).
 
 ## Open Questions
 

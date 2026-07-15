@@ -64,6 +64,38 @@ export const s = {
     color: "var(--text-primary)",
     paddingRight: 12,
   } satisfies CSSProperties,
+
+  // ---- Smart Diff ----
+  smartGroupSection: { marginBottom: 22 } satisfies CSSProperties,
+  smartGroupHeader: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } satisfies CSSProperties,
+  smartGroupDot: { width: 8, height: 8, borderRadius: 99, flexShrink: 0 } satisfies CSSProperties,
+  smartGroupTitle: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)" } satisfies CSSProperties,
+  smartGroupHint: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  smartGroupCount: { marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  smartGroupFiles: { display: "flex", flexDirection: "column", gap: 10 } satisfies CSSProperties,
+  findingsBadgeBtn: {
+    display: "inline-flex",
+    border: "none",
+    background: "none",
+    padding: 0,
+    cursor: "pointer",
+    borderRadius: 5,
+  } satisfies CSSProperties,
+  smartFindingPill: { position: "absolute", top: 2, right: 8, zIndex: 1 } satisfies CSSProperties,
+
+  splitCard: { marginBottom: 16 } satisfies CSSProperties,
+  splitHeader: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } satisfies CSSProperties,
+  splitTitle: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1 } satisfies CSSProperties,
+  splitRow: { padding: "8px 0", borderTop: "1px solid var(--border)" } satisfies CSSProperties,
+  splitRowHeader: { display: "flex", alignItems: "center", gap: 8, cursor: "pointer" } satisfies CSSProperties,
+  splitRowName: { fontSize: 13, fontWeight: 500, color: "var(--text-primary)", flex: 1 } satisfies CSSProperties,
+  splitFileList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    margin: "8px 0 0 22px",
+  } satisfies CSSProperties,
+  splitFilePath: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
 } as const;
 
 /** Chevron rotates 90deg when the file card is open. */
@@ -79,6 +111,12 @@ export function chevronFor(open: boolean): CSSProperties {
 export function lineRowFor(kind: Line["kind"]): CSSProperties {
   const background = kind === "add" ? "var(--code-add)" : kind === "del" ? "var(--code-del)" : "transparent";
   return { display: "flex", alignItems: "stretch", fontSize: 13, lineHeight: "20px", background };
+}
+
+/** Left gutter bar + relative positioning for a diff line carrying a Smart
+   Diff finding — `color` is the line's top severity colour (`SEV`). */
+export function findingLineWrap(color: string): CSSProperties {
+  return { position: "relative", borderLeft: `3px solid ${color}` };
 }
 
 /** Gutter sign colour per line kind. */

@@ -132,6 +132,40 @@ headers WITH context but no diff body (e.g. a cheap "structure-aware, no-code" c
 must regex `/^@@ .* @@.*$/gm` directly off `pr_files.patch` instead — see
 `modules/intent/helpers.ts:buildFileList`.
 
+### Pure read-compose module shape: no LLM, no persistence
+Every prior module either calls an LLM (`reviews`, `intent`, `conventions`) or writes to the DB
+(`skills`, `agents`). `modules/smart-diff/` is the first of a third shape: a route that only
+reads existing rows (`pr_files`, `findings` via the last review) and deterministically recomposes
+them (risk grouping, split suggestion) — zero model calls, zero writes. When a feature is "derive
+a view from data another feature already persisted," reach for this shape (`service.ts` = DB
+reads only, `helpers.ts` = pure compose) instead of defaulting to the LLM-call or CRUD templates.
+
+### Pure helper modules take local structural interfaces, not Drizzle row imports — now 2-for-2
+`modules/intent/helpers.ts` (`PrFileHeaders`) and `modules/smart-diff/helpers.ts`
+(`SmartDiffInputFile`/`SmartDiffInputFinding`) both declare a narrow local interface for "the
+subset of a `pr_files`/`findings` row this module needs" instead of importing the Drizzle row
+type. This keeps the helpers file DB-free and independently testable with plain object literals
+(see both modules' `helpers.test.ts`). Confirmed twice now — treat as the standard shape for any
+new pure-compose helpers file that consumes DB-shaped data: declare the local interface, map the
+real row into it at the service boundary, never import the Drizzle type into `helpers.ts`.
+
+### Test the workspace-scope gate ORDER, not just its outcome — call-order flags in the fake repo
+`modules/smart-diff/service.test.ts`'s 404 test doesn't just assert `getSmartDiff` throws for an
+unknown/other-workspace `prId` — it sets `getPrFilesCalled`/`reviewsForPullCalled` booleans inside
+the fake `reviewRepo`'s other methods and asserts both stay `false` after the throw. This is the
+only test in the codebase using this technique (grepped for `Called = false` across
+`modules/*/*.test.ts`). Reuse it for any service where one repo call is the sole workspace gate
+and subsequent calls are unscoped by design (`SmartDiffService.getSmartDiff`,
+`IntentService.getIntent`, `ReviewService.reviewsForPull`) — asserting only the thrown error
+doesn't catch a regression that reorders the calls and leaks another workspace's rows.
+
+### When NOT to add `rateLimit` to a route
+`intent`/`reviews` throttle their routes because they fan out to LLM calls (real $ cost per
+request). `modules/smart-diff/routes.ts` deliberately has **no** `rateLimit` config — it's a
+cheap DB-only read with no LLM call, and adding a limit would signal a cost that doesn't exist.
+Base the decision on "does this route call an LLM," not "is this a new route" — a DB-only read/
+compose route should stay unthrottled.
+
 ## Recurring Errors & Fixes
 
 ### `cost_usd` missing in RunStats/RunSummary fixtures → Zod/TS failures
@@ -188,6 +222,15 @@ the only other flash-class default in the registry) in BOTH `server/src/vendor/s
 and `client/src/lib/feature-models.ts` — byte-matched, verified by the orchestrator. No new
 migration (table pre-existed). Engine pieces → [../reviewer-core/insights.md](../reviewer-core/insights.md).
 Client → [client/insights.md](../client/insights.md).
+
+### 2026-07-15 — Smart Diff (risk-ordered layout + last-review findings overlay, no LLM)
+New `modules/smart-diff/` (constants/helpers/service/routes): `GET /pulls/:id/smart-diff` groups
+`pr_files` into `core`/`wiring`/`boilerplate` by path-pattern classification, sorts each group by
+(finding-count desc, churn desc, path asc), overlays the newest `kind:'review'` row's findings by
+exact-path + `start_line`, and proposes a same-directory split when total churn exceeds a
+threshold. Zero LLM calls, zero writes — see the new "Pure read-compose module shape" pattern
+above. `pseudocode_summary` is a locked-`null` field on `SmartDiffFile` (reserved for a future
+LLM-backed enhancement, not wired here). No migration — reads only `pr_files`/`findings`/`reviews`.
 
 ## Open Questions
 
