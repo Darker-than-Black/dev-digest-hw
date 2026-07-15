@@ -16,6 +16,13 @@ from persistence/UI by commit `d45ab0d`. Re-surfacing = pure plumbing, **zero ne
 add column → pass through executor → contracts → routes. Before adding a "new" metric, check
 `ReviewOutcome` / the LLM `StructuredResult` — tokens AND cost are already there.
 
+### Resolve the feature model ONCE, thread it into best-effort sub-calls
+`modules/intent/service.ts` `computeIntent` resolves `resolveFeatureModel(...,'review_intent')`
+once, then passes `{provider,model}` straight into `gatherSpec`'s optional second LLM call
+(`condenseSpec`, for long combined specs) instead of re-resolving — one settings read, guaranteed
+same model for both calls. Reuse this shape for any feature needing a "cheap pre-process call +
+main call" pair on one feature-model slot.
+
 ## What Doesn't Work
 
 ## Codebase Patterns
@@ -50,7 +57,11 @@ Building the Skills feature, `skills` / `skill_versions` / `agent_skills` tables
 only `modules/skills/` and the prompt wiring were missing. Before a "new feature" migration or
 contract, grep `db/schema/*` and `vendor/shared/contracts/*`: half the domain may already be
 there, and re-declaring it fights the existing PK/unique index. The starter's `modules/index.ts`
-doc-comment even lists which lesson modules are coming (`skills`, `intent`, `eval`, …).
+doc-comment even lists which lesson modules are coming (`skills`, `intent`, `eval`, …). Confirmed
+again for the Intent layer: `pr_intent` table, `Intent`/`PrIntentRecord` contracts, the
+`upsertIntent`/`getIntent` repository methods, the `review_intent` `FeatureModelId`, and even the
+`INJECTION_GUARD` prompt text ("derived intent/scope") all pre-existed with zero callers —
+`modules/intent/` was pure wiring, no new migration.
 
 ### Skill bodies reach the prompt ONLY via `run-executor` — the seam is silent
 The `## Skills / rules` block was fully scaffolded end-to-end (`PromptParts.skills[]` in
@@ -59,6 +70,8 @@ reviewer-core `prompt.ts`, `ReviewInput.skills` in `review/run.ts`, the trace-UI
 nothing downstream complained. Wiring point: `runOneAgent`, before `reviewPullRequest` — load
 `this.agents.linkedSkills(agent.id)`, filter `skill.enabled && link.enabled`, keep link order,
 map `.body`. `container.agentsRepo` is the `AgentsRepository` (owns the agent side of the join).
+Same silent-seam shape hit the Intent layer's `## Review scope` block — see
+[../reviewer-core/insights.md](../reviewer-core/insights.md).
 
 ### A live review needs a real diff — seeded PRs with NULL `pr_files.patch` review to nothing
 `modules/reviews/diff-loader.ts` tries `container.git.diff(base…head)` first, then falls back to
@@ -75,6 +88,15 @@ loader prepends the `diff --git`/`---`/`+++` headers itself, so store only the h
 and re-parsed in `toAgentVersionDto` on read. Tempting to record per-link `{id,order,enabled}`
 for reproducibility, but that throws on every version read. Per-link `enabled` lives only on
 `agent_skills`; the snapshot stays ordered ids.
+
+### Path-from-user-text safety gate: `safeRepoPath` — reject `..`, leading `/`, null bytes, drive paths BEFORE any `readFiles`
+`repoIntel.readFiles` (and `git.readFile`) do a plain `join(clonePath, path)` with **no**
+traversal guard of their own. Any feature that derives a repo-relative path from
+user-controlled text (PR body, issue body, etc.) MUST pass it through a `safeRepoPath`-style
+gate first, applied to every candidate path before the read call — see
+`modules/intent/helpers.ts`. Grep `safeRepoPath` before writing a new "read this
+user-referenced file" feature instead of re-deriving the traversal check from scratch; this is
+exactly the kind of miss the `pr-self-review` gate treats as critical.
 
 ## Tool & Library Notes
 
@@ -102,6 +124,13 @@ directory entries (`name.endsWith('/')`), reject `..` / absolute paths (traversa
 entry count and total decompressed bytes (zip-bomb). For "text-only, never execute" imports,
 enumerate executable/binary entries into an `ignored_files` list and simply never read them —
 extraction = reading selected text entries, nothing runs. See `modules/skills/import.ts`.
+
+### Hunk-header extraction: regex `@@ ... @@` off raw `patch`, never `parseUnifiedDiff`
+`parseUnifiedDiff` keeps only the four numeric fields off a `@@` line and **drops** the trailing
+function-context text (`@@ -12,3 +12,4 @@ function foo() {`). Any feature that wants hunk
+headers WITH context but no diff body (e.g. a cheap "structure-aware, no-code" classifier call)
+must regex `/^@@ .* @@.*$/gm` directly off `pr_files.patch` instead — see
+`modules/intent/helpers.ts:buildFileList`.
 
 ## Recurring Errors & Fixes
 
@@ -145,9 +174,38 @@ text-only base64 `.md`/`.zip` (`fflate`) with preview→confirm. Seed: Test Qual
 agents, 6 skills (one `source:extracted`), linked. Slug uniqueness → `ConflictError` (new 409 in
 `platform/errors.ts`). Client → [client/insights.md](../client/insights.md).
 
+### 2026-07-15 — Intent layer (derive → persist → inject → auto-compute)
+New `modules/intent/` (constants/helpers/spec-gather/service/routes) wires the pre-scaffolded
+`pr_intent` table + `Intent`/`PrIntentRecord` contracts + `review_intent` `FeatureModelId` into a
+live path: `GET/POST /pulls/:id/intent(/recompute)`. Spec gathered from 3 best-effort sources
+(inline body, `safeRepoPath`-filtered repo plan file via `repoIntel.readFiles`, linked GitHub
+issue via try/catch around `container.github()`), condensed with a second cheap LLM call above a
+token cap. Auto-compute-if-missing wired into `modules/reviews/run-executor.ts` right after the
+diff-load step, `.catch(() => undefined)` so an unavailable intent never fails a review; injected
+into `reviewPullRequest` as `intent` → reviewer-core's new `## Review scope` section. `review_intent`
+default model flipped `openai/gpt-4.1` → `openrouter/deepseek-v4-flash` (mirrors `onboarding`,
+the only other flash-class default in the registry) in BOTH `server/src/vendor/shared/contracts/platform.ts`
+and `client/src/lib/feature-models.ts` — byte-matched, verified by the orchestrator. No new
+migration (table pre-existed). Engine pieces → [../reviewer-core/insights.md](../reviewer-core/insights.md).
+Client → [client/insights.md](../client/insights.md).
+
 ## Open Questions
 
 ### PR-list cost has no dedicated test
 The `SUM(cost_usd) GROUP BY pr_id` aggregate in `modules/pulls/routes.ts` is only covered by
 typecheck — no it.test exercises a multi-run PR summing to a known total. Add one if the
 aggregate logic grows (per-PR filtering, date windows).
+
+### Intent derivation has no test coverage yet
+The Intent layer (`modules/intent/`, `reviewer-core/src/intent.ts`, the `run-executor.ts` wiring)
+was implemented with tests explicitly deferred to a later pass (user request). Nothing exercises
+`safeRepoPath` traversal rejection, the best-effort degrade paths (github offline, readFiles
+disabled), the `SPEC_TOKEN_CAP` compression trigger, or the `## Review scope` prompt-parity
+(present/absent) beyond a manual read. Write these first when tests are added — they're the
+security- and correctness-critical seams called out in `docs/plans/intent-layer.md`.
+
+### Clone freshness — `readFiles` doesn't checkout the PR's exact `headSha`
+`spec-gather.ts`'s repo-file read goes through `repoIntel.readFiles`, which reads whatever is
+currently checked out in the local clone, not necessarily the PR's head commit. A stale clone or
+wrong branch could feed the classifier the wrong version of a referenced plan file. Accepted as
+a v1 limitation (best-effort context) — revisit if intent quality complaints trace back to this.
