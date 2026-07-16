@@ -17,11 +17,14 @@ export function FindingsPanel({
   prId,
   repoFullName,
   headSha,
+  onOpenInDiff,
 }: {
   findings: FindingRecord[];
   prId: string;
   repoFullName?: string | null;
   headSha?: string | null;
+  /** A finding's file:line click → navigate to the Files-changed tab. */
+  onOpenInDiff?: (f: FindingRecord) => void;
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
@@ -68,6 +71,7 @@ export function FindingsPanel({
               repoFullName={repoFullName}
               headSha={headSha}
               onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
+              onOpenInDiff={onOpenInDiff}
             />
           ))
         )}

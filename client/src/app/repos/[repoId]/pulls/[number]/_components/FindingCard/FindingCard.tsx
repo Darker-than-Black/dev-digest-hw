@@ -32,6 +32,7 @@ export function FindingCard({
   pending,
   repoFullName,
   headSha,
+  onOpenInDiff,
 }: {
   f: FindingRecord;
   focused?: boolean;
@@ -40,6 +41,10 @@ export function FindingCard({
   pending?: boolean;
   repoFullName?: string | null;
   headSha?: string | null;
+  /** Primary file:line click — navigate to the Files-changed tab and scroll
+      to/flash the referenced line (in-app; the GitHub blob URL is kept as a
+      secondary external-link affordance next to it). */
+  onOpenInDiff?: (f: FindingRecord) => void;
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
@@ -66,9 +71,21 @@ export function FindingCard({
             {dismissed && <span style={s.dismissedTag}>{t("finding.dismissed")}</span>}
           </div>
           <div style={s.metaRow}>
-            <MonoLink href={fileHref}>
+            <MonoLink onClick={() => onOpenInDiff?.(f)}>
               {f.file}:{lineLabel(f)}
             </MonoLink>
+            {fileHref && (
+              <a
+                href={fileHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t("finding.viewOnGitHub")}
+                onClick={(e) => e.stopPropagation()}
+                style={s.githubLink}
+              >
+                <Icon.ExternalLink size={12} />
+              </a>
+            )}
             <ConfidenceNum value={f.confidence} />
           </div>
         </div>

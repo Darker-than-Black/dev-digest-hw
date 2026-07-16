@@ -8,31 +8,33 @@
 import type { FindingRecord, ReviewRecord, Severity } from "@devdigest/shared";
 
 /**
- * The newest `kind === 'review'` row (`usePrReviews` returns reviews newest-
- * first, per the server's `ORDER BY created_at DESC`). This MIRRORS the
- * server's `SmartDiffService.getSmartDiff` last-review rule
- * (`server/src/modules/smart-diff/service.ts`) and the two MUST stay in
- * lockstep — there is deliberately no shared runtime helper across the
- * client/server package boundary (a runtime import from `@devdigest/shared`
- * would bundle the vendored barrel and break the webpack build), so any future
- * change to the "last review" rule has to edit both places by hand.
+ * Findings from EVERY `kind === 'review'` row. Multi-agent review is
+ * first-class here — each agent's pass is its own review row — so picking
+ * only the newest row would show one agent's findings and hide the rest.
+ *
+ * This MIRRORS the server's `SmartDiffService.getSmartDiff` rule
+ * (`server/src/modules/smart-diff/service.ts`, which builds `finding_lines`
+ * the same way) and the two MUST stay in lockstep: the server decides which
+ * lines get an anchor, this decides which get a pill. There is deliberately
+ * no shared runtime helper across the client/server package boundary (a
+ * runtime import from `@devdigest/shared` would bundle the vendored barrel
+ * and break the webpack build), so any change here has to edit both by hand.
  */
-export function lastReview(reviews: ReviewRecord[] | undefined): ReviewRecord | null {
-  return reviews?.find((r) => r.kind === "review") ?? null;
+export function reviewFindings(reviews: ReviewRecord[] | undefined): FindingRecord[] {
+  return (reviews ?? []).filter((r) => r.kind === "review").flatMap((r) => r.findings);
 }
 
 /**
- * Group a review's findings for one file by `start_line` — the shape the
- * per-line severity pills and per-file "N findings" counts are built from.
- * Exact `file` match only (mirrors the server's `findingLinesFor`).
+ * Group findings for one file by `start_line` — the shape the per-line
+ * severity pills and per-file "N findings" counts are built from. Exact
+ * `file` match only (mirrors the server's `findingLinesFor`).
  */
 export function findingsByLine(
-  review: ReviewRecord | null,
+  findings: FindingRecord[],
   path: string,
 ): Map<number, FindingRecord[]> {
   const map = new Map<number, FindingRecord[]>();
-  if (!review) return map;
-  for (const f of review.findings) {
+  for (const f of findings) {
     if (f.file !== path) continue;
     const list = map.get(f.start_line) ?? [];
     list.push(f);

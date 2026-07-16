@@ -27,6 +27,9 @@ interface FindingsTabProps {
   onRunDone: () => void;
   /** Finding id to scroll to + flash (from the PR list popover deep-link). */
   focusFindingId?: string | null;
+  /** A finding's file:line click → navigate to the Files-changed tab, focused
+      on that line (threaded down to FindingCard; container-tier owns routing). */
+  onOpenInDiff?: (f: FindingRecord) => void;
 }
 
 export function FindingsTab({
@@ -44,6 +47,7 @@ export function FindingsTab({
   onDelete,
   onRunDone,
   focusFindingId,
+  onOpenInDiff,
 }: FindingsTabProps) {
   const handleCancelAll = useCallback(() => {
     liveRunIds.forEach((id) => cancelMutation.mutate(id));
@@ -211,6 +215,7 @@ export function FindingsTab({
             targetNonce={target?.n ?? 0}
             openFindingId={focus?.id ?? null}
             openNonce={focus?.n ?? 0}
+            onOpenInDiff={onOpenInDiff}
           />
         ))
       )}

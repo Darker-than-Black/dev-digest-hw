@@ -29,13 +29,17 @@ export class SmartDiffService {
 
     const prFiles = await this.container.reviewRepo.getPrFiles(prId);
 
-    // "Last review" = the newest kind:'review' row. `reviewsForPull` is
-    // already newest-first (`review.repo.ts`), so `.find` picks it; a
-    // newer kind:'summary' row is skipped. Zero reviews -> findings=[] ->
+    // Findings from EVERY kind:'review' row, not just the newest one.
+    // Multi-agent review is first-class here: each agent's pass is its own
+    // review row, so a "newest row only" rule would surface one agent's
+    // findings and hide the other four — e.g. a Security Reviewer blocker
+    // going invisible because a later API Contract Reviewer pass found
+    // nothing. This matches the PR-list aggregates, which also count all
+    // runs (`modules/pulls/routes.ts`). kind:'summary' rows carry no
+    // findings of their own and are skipped. Zero reviews -> findings=[] ->
     // every finding_lines empty -> layout without overlay (not an error).
     const rows = await this.container.reviewRepo.reviewsForPull(prId);
-    const last = rows.find((r) => r.review.kind === 'review');
-    const findings = last?.findings ?? [];
+    const findings = rows.filter((r) => r.review.kind === 'review').flatMap((r) => r.findings);
 
     const files = prFiles.map((f) => ({
       path: f.path,

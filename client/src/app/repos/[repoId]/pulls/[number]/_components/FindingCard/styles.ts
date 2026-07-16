@@ -50,6 +50,13 @@ export const s = {
     gap: 12,
     marginTop: 5,
   } satisfies CSSProperties,
+  /** Secondary "open on GitHub" affordance next to the (now in-app) file:line link. */
+  githubLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    color: "var(--text-muted)",
+    textDecoration: "none",
+  } satisfies CSSProperties,
   chevron: (expanded: boolean): CSSProperties => ({
     color: "var(--text-muted)",
     transform: expanded ? "rotate(180deg)" : "none",

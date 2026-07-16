@@ -60,13 +60,26 @@ export default function PRDetailPage() {
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
   const focusFindingId = search.get("finding");
-  const setParam = (key: string, val: string | null) => {
+  // Set one or more query params in a single navigation (setParam below chains
+  // to this) — needed for the finding<->diff cross-tab links, which must set
+  // `tab` and `finding` together: two sequential setParam calls would race
+  // (the second reads a stale `search` snapshot from before the first applied).
+  const setParams = (updates: Record<string, string | null>) => {
     const sp = new URLSearchParams(search.toString());
-    if (val == null) sp.delete(key);
-    else sp.set(key, val);
+    for (const [key, val] of Object.entries(updates)) {
+      if (val == null) sp.delete(key);
+      else sp.set(key, val);
+    }
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
+  const setParam = (key: string, val: string | null) => setParams({ [key]: val });
   const setTab = (t: string) => setParam("tab", t);
+  // A finding's file:line click (Findings tab) → Files-changed tab, focused on
+  // that finding's line. The reverse: a diff line's severity pill → Findings
+  // tab, focused on that finding. Same `?finding=<id>` param both ways —
+  // meaning depends on `tab` (see DiffTab/FindingsTab for how each consumes it).
+  const openFindingInDiff = (f: FindingRecord) => setParams({ tab: "diff", finding: f.id });
+  const openFindingInFindings = (findingId: string) => setParams({ tab: "findings", finding: findingId });
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -150,6 +163,7 @@ export default function PRDetailPage() {
             headSha={pr.head_sha}
             cancelMutation={cancel}
             focusFindingId={focusFindingId}
+            onOpenInDiff={openFindingInDiff}
             onOpenTrace={(id) => setParam("trace", id)}
             onDelete={(id) => {
               if (window.confirm("Delete this run from history? (its logs are removed too)"))
@@ -169,6 +183,8 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            focusFindingId={focusFindingId}
+            onOpenFinding={openFindingInFindings}
           />
         )}
       </div>

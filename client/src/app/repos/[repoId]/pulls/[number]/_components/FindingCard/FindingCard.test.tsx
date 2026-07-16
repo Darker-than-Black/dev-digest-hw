@@ -57,4 +57,32 @@ describe("FindingCard (smoke, both themes)", () => {
     fireEvent.click(screen.getByText("Dismiss"));
     expect(onAction).toHaveBeenCalledWith("dismiss");
   });
+
+  it("clicking file:line navigates in-app via onOpenInDiff (not GitHub), keeping the GitHub blob URL reachable as a secondary link", () => {
+    const onOpenInDiff = vi.fn();
+    renderWithIntl(
+      <FindingCard
+        f={FINDING}
+        defaultExpanded
+        onAction={() => {}}
+        onOpenInDiff={onOpenInDiff}
+        repoFullName="acme/widgets"
+        headSha="abc123"
+      />,
+    );
+
+    // Primary click: in-app diff-tab navigation, not a GitHub anchor.
+    const fileLine = screen.getByText("src/config.ts:11");
+    expect(fileLine.closest("a")).toBeNull();
+    fireEvent.click(fileLine);
+    expect(onOpenInDiff).toHaveBeenCalledWith(FINDING);
+
+    // Secondary affordance: GitHub is still reachable via its own link.
+    const githubLink = screen.getByRole("link", { name: "View on GitHub" });
+    expect(githubLink).toHaveAttribute(
+      "href",
+      "https://github.com/acme/widgets/blob/abc123/src/config.ts#L11",
+    );
+    expect(githubLink).toHaveAttribute("target", "_blank");
+  });
 });

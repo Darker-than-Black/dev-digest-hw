@@ -71,7 +71,7 @@ describe('SmartDiffService.getSmartDiff', () => {
     expect(totalFiles).toBe(2);
   });
 
-  it('only the newest review kind:"review" findings land in finding_lines', async () => {
+  it('EVERY review run contributes to finding_lines, not just the newest', async () => {
     const container = makeContainer({
       pull: { id: 'pr1' },
       prFiles: [{ path: 'server/a.ts', additions: 1, deletions: 0 }],
@@ -90,10 +90,29 @@ describe('SmartDiffService.getSmartDiff', () => {
     const service = new SmartDiffService(container);
     const result = await service.getSmartDiff('ws1', 'pr1');
     const file = result.groups.find((g) => g.role === 'core')?.files[0];
-    expect(file?.finding_lines).toEqual([42]);
+    expect(file?.finding_lines).toEqual([7, 42]);
   });
 
-  it('a kind:"summary" row newer than the kind:"review" row is skipped', async () => {
+  it('regression: an older run\'s findings survive a newer run that found nothing', async () => {
+    // The real multi-agent shape that broke this: five agents each write
+    // their own kind:'review' row, and the newest one (API Contract
+    // Reviewer) found nothing — which used to blank the whole overlay and
+    // hide the Security Reviewer's blocker.
+    const container = makeContainer({
+      pull: { id: 'pr1' },
+      prFiles: [{ path: 'server/a.ts', additions: 1, deletions: 0 }],
+      rows: [
+        { review: { kind: 'review' }, findings: [] }, // newest: found nothing
+        { review: { kind: 'review' }, findings: [{ file: 'server/a.ts', startLine: 51 }] },
+      ],
+    });
+    const service = new SmartDiffService(container);
+    const result = await service.getSmartDiff('ws1', 'pr1');
+    const file = result.groups.find((g) => g.role === 'core')?.files[0];
+    expect(file?.finding_lines).toEqual([51]);
+  });
+
+  it('kind:"summary" rows are skipped, however new', async () => {
     const container = makeContainer({
       pull: { id: 'pr1' },
       prFiles: [{ path: 'server/a.ts', additions: 1, deletions: 0 }],

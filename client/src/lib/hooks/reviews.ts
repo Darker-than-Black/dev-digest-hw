@@ -60,7 +60,7 @@ export function usePrReviews(prId: string | null | undefined) {
 /** Smart Diff — risk-ordered file classification + last-review finding overlay
    (`GET /pulls/:id/smart-diff`, computed server-side from `pr_files` +
    `findings`; no LLM call). See `lib/smart-diff.ts` for the client-side
-   helpers (`lastReview`/`findingsByLine`/`topSeverity`) that consume it. */
+   helpers (`reviewFindings`/`findingsByLine`/`topSeverity`) that consume it. */
 export function useSmartDiff(prId: string | null | undefined) {
   return useQuery({
     queryKey: ["smart-diff", prId],
