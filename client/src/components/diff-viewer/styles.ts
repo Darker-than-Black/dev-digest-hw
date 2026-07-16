@@ -82,6 +82,19 @@ export const s = {
     borderRadius: 5,
   } satisfies CSSProperties,
   smartFindingPill: { position: "absolute", top: 2, right: 8, zIndex: 1 } satisfies CSSProperties,
+  /** Interactive per-line pill — jumps to the finding in Review runs. */
+  smartFindingPillBtn: {
+    position: "absolute",
+    top: 2,
+    right: 8,
+    zIndex: 1,
+    display: "inline-flex",
+    border: "none",
+    background: "none",
+    padding: 0,
+    cursor: "pointer",
+    borderRadius: 5,
+  } satisfies CSSProperties,
 
   splitCard: { marginBottom: 16 } satisfies CSSProperties,
   splitHeader: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } satisfies CSSProperties,

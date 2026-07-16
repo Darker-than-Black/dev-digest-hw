@@ -46,6 +46,18 @@ function groupByLine(findings: FindingRecord[]): Map<number, FindingRecord[]> {
   return map;
 }
 
+/** Scroll a `[data-diff-line]` anchor into view + flash it, or no-op when the
+   anchor isn't rendered (file not in the diff, or a null-patch file that
+   never renders any lines). Shared by the header badge's jumpToFirstFinding
+   and the incoming cross-tab focusTarget effect below. */
+function scrollAndFlash(selector: string): void {
+  const el = document.querySelector(selector);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("dd-finding-flash");
+  window.setTimeout(() => el.classList.remove("dd-finding-flash"), 1500);
+}
+
 export interface SmartDiffFileCardProps {
   file: SmartDiffFile;
   patch: string | null;
@@ -53,6 +65,14 @@ export interface SmartDiffFileCardProps {
   findings: FindingRecord[];
   defaultOpen: boolean;
   commenting?: DiffCommentApi;
+  /** Cross-tab: a finding's file:line click (Findings tab) resolved to a
+      file+line to open/scroll/flash on arrival. Only acted on when it targets
+      THIS file — every other file card no-ops. `nonce` re-fires on repeat
+      clicks to the same finding. */
+  focusTarget?: { file: string; line: number; nonce: number } | null;
+  /** Reverse cross-tab nav: a per-line severity pill click → open that
+      finding in the Findings tab (`?tab=findings&finding=<id>`). */
+  onOpenFinding?: (findingId: string) => void;
 }
 
 export function SmartDiffFileCard({
@@ -62,6 +82,8 @@ export function SmartDiffFileCard({
   findings,
   defaultOpen,
   commenting,
+  focusTarget,
+  onOpenFinding,
 }: SmartDiffFileCardProps) {
   const t = useTranslations("shell");
   // `defaultOpen` is computed once by the parent group section (one place —
@@ -87,14 +109,21 @@ export function SmartDiffFileCard({
     const firstLine = file.finding_lines[0];
     if (firstLine == null) return;
     setOpen(true);
-    window.setTimeout(() => {
-      const el = document.querySelector(`[data-diff-line="${file.path}:${firstLine}"]`);
-      if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("dd-finding-flash");
-      window.setTimeout(() => el.classList.remove("dd-finding-flash"), 1500);
-    }, 320);
+    window.setTimeout(() => scrollAndFlash(`[data-diff-line="${file.path}:${firstLine}"]`), 320);
   }, [file.path, file.finding_lines]);
+
+  // Incoming cross-tab jump (a finding's file:line click on the Findings tab).
+  // Only this file's card acts when `focusTarget.file` matches; every other
+  // card's effect is a no-op. Opens the card first (mirrors jumpToFirstFinding
+  // above) so a collapsed file still reveals its target line. Works for ANY
+  // finding — including one from an older run with no `finding_lines` entry —
+  // because every line with a `newNo` carries a `data-diff-line` anchor now.
+  React.useEffect(() => {
+    if (!focusTarget || focusTarget.file !== file.path) return;
+    setOpen(true);
+    window.setTimeout(() => scrollAndFlash(`[data-diff-line="${file.path}:${focusTarget.line}"]`), 320);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTarget?.nonce, focusTarget?.file, focusTarget?.line, file.path]);
 
   return (
     <div data-role={role} style={s.fileCard}>
@@ -131,28 +160,45 @@ export function SmartDiffFileCard({
             lines.map((ln, i) => {
               const key = ln.kind === "hunk" ? `h${i}` : `${ln.kind}-${ln.newNo ?? ln.oldNo}`;
               const lineFindings = ln.newNo != null ? byLine.get(ln.newNo) : undefined;
-              const codeLine = (
-                <CodeLine
-                  ln={ln}
-                  path={file.path}
-                  threads={threadsForLine(ln, matched)}
-                  commenting={commenting}
-                />
-              );
+              // Every line with a new-side line number gets a jump-to-line
+              // anchor, not only flagged ones — a finding from an older run
+              // (not in this Smart Diff overlay's `finding_lines`) still needs
+              // somewhere for its file:line click to land.
+              const diffLineKey = ln.newNo != null ? `${file.path}:${ln.newNo}` : undefined;
               if (!lineFindings || lineFindings.length === 0) {
-                return <React.Fragment key={key}>{codeLine}</React.Fragment>;
+                return (
+                  <CodeLine
+                    key={key}
+                    ln={ln}
+                    path={file.path}
+                    threads={threadsForLine(ln, matched)}
+                    commenting={commenting}
+                    dataDiffLine={diffLineKey}
+                  />
+                );
               }
-              const color = SEV[topSeverity(lineFindings)].c;
+              const topSev = topSeverity(lineFindings);
+              const color = SEV[topSev].c;
+              const pillFinding = lineFindings.find((f) => f.severity === topSev) ?? lineFindings[0]!;
               return (
-                <div
-                  key={key}
-                  data-diff-line={`${file.path}:${ln.newNo}`}
-                  style={findingLineWrap(color)}
-                >
-                  {codeLine}
-                  <span style={s.smartFindingPill}>
-                    <SeverityBadge severity={topSeverity(lineFindings)} compact />
-                  </span>
+                <div key={key} data-diff-line={diffLineKey} style={findingLineWrap(color)}>
+                  <CodeLine
+                    ln={ln}
+                    path={file.path}
+                    threads={threadsForLine(ln, matched)}
+                    commenting={commenting}
+                  />
+                  <button
+                    type="button"
+                    aria-label={t("diffViewer.smartDiff.openFinding")}
+                    style={s.smartFindingPillBtn}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenFinding?.(pillFinding.id);
+                    }}
+                  >
+                    <SeverityBadge severity={topSev} compact />
+                  </button>
                 </div>
               );
             })

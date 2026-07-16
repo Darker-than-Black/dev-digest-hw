@@ -14,11 +14,17 @@ export function CodeLine({
   path,
   threads,
   commenting,
+  dataDiffLine,
 }: {
   ln: Line;
   path: string;
   threads: CommentThread[];
   commenting?: DiffCommentApi;
+  /** Smart Diff jump-to-line anchor (`${path}:${newNo}`). Set on every line
+      that has a new-side line number, even ones with no finding overlay —
+      SmartDiffFileCard wraps FLAGGED lines separately (for the pill/border)
+      and does not also pass this prop for those. */
+  dataDiffLine?: string;
 }) {
   const [hover, setHover] = React.useState(false);
   const [composing, setComposing] = React.useState(false);
@@ -38,6 +44,7 @@ export function CodeLine({
   return (
     <div
       style={cs.rowWrap}
+      data-diff-line={dataDiffLine}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >

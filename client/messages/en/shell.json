@@ -64,6 +64,7 @@
       },
       "fileCount": "{count, plural, one {# file} other {# files}}",
       "findingCount": "{count, plural, one {# finding} other {# findings}}",
+      "openFinding": "Open this finding in Review runs",
       "split": {
         "title": "This PR looks big for one review pass",
         "totalLines": "{count, plural, one {# changed line} other {# changed lines}}",

@@ -7,7 +7,7 @@
 
 import React from "react";
 import { Icon, Badge } from "@devdigest/ui";
-import type { ReviewRecord, Verdict } from "@devdigest/shared";
+import type { FindingRecord, ReviewRecord, Verdict } from "@devdigest/shared";
 import { FindingsPanel } from "../FindingsPanel";
 import { VerdictBanner } from "../VerdictBanner";
 import { useDeleteReview } from "../../../../../../../lib/hooks/reviews";
@@ -33,6 +33,7 @@ export function ReviewRunAccordion({
   targetNonce = 0,
   openFindingId = null,
   openNonce = 0,
+  onOpenInDiff,
 }: {
   review: ReviewRecord;
   prId: string;
@@ -47,6 +48,8 @@ export function ReviewRunAccordion({
    *  (driven from a severity popover, where the run may have no run_id). */
   openFindingId?: string | null;
   openNonce?: number;
+  /** A finding's file:line click → navigate to the Files-changed tab. */
+  onOpenInDiff?: (f: FindingRecord) => void;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -165,6 +168,7 @@ export function ReviewRunAccordion({
             prId={prId}
             repoFullName={repoFullName}
             headSha={headSha}
+            onOpenInDiff={onOpenInDiff}
           />
         </div>
       )}

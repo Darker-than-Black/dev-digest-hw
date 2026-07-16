@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
 import { render, screen, cleanup, within, waitFor, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import messages from "../../../../messages/en/shell.json";
@@ -107,7 +107,7 @@ function smartDiff(tooBig: boolean): SmartDiffResponse {
   };
 }
 
-const review: ReviewRecord = {
+const reviewRow: ReviewRecord = {
   id: "review-1",
   pr_id: "pr-1",
   agent_id: "agent-1",
@@ -127,7 +127,7 @@ const review: ReviewRecord = {
 
 describe("SmartDiffViewer", () => {
   it("orders groups core→wiring→boilerplate, collapses boilerplate by default except flagged files, badges only flagged files, and degrades a null patch to the noDiff copy", () => {
-    renderWithIntl(<SmartDiffViewer smartDiff={smartDiff(false)} files={files} review={review} />);
+    renderWithIntl(<SmartDiffViewer smartDiff={smartDiff(false)} files={files} findings={reviewRow.findings} />);
 
     // Flagged core file: red dot + "N findings" badge, expanded (finding line visible).
     const coreHeader = fileHeader("server/src/service.ts");
@@ -158,7 +158,7 @@ describe("SmartDiffViewer", () => {
 
   it("clicking a findings badge jumps to and flashes the file's first flagged line, and the split banner only renders when too_big", async () => {
     const { rerender } = renderWithIntl(
-      <SmartDiffViewer smartDiff={smartDiff(false)} files={files} review={review} />,
+      <SmartDiffViewer smartDiff={smartDiff(false)} files={files} findings={reviewRow.findings} />,
     );
     expect(screen.queryByText("This PR looks big for one review pass")).not.toBeInTheDocument();
 
@@ -173,9 +173,50 @@ describe("SmartDiffViewer", () => {
 
     rerender(
       <NextIntlClientProvider locale="en" messages={{ shell: messages }}>
-        <SmartDiffViewer smartDiff={smartDiff(true)} files={files} review={review} />
+        <SmartDiffViewer smartDiff={smartDiff(true)} files={files} findings={reviewRow.findings} />
       </NextIntlClientProvider>,
     );
     expect(screen.getByText("This PR looks big for one review pass")).toBeInTheDocument();
+  });
+
+  it("clicking a per-line severity pill calls onOpenFinding with that line's finding id (reverse nav to the Findings tab)", () => {
+    const onOpenFinding = vi.fn();
+    renderWithIntl(
+      <SmartDiffViewer
+        smartDiff={smartDiff(false)}
+        files={files}
+        findings={reviewRow.findings}
+        onOpenFinding={onOpenFinding}
+      />,
+    );
+
+    const lineEl = document.querySelector('[data-diff-line="server/src/service.ts:3"]') as HTMLElement;
+    const pill = within(lineEl).getByRole("button", { name: "Open this finding in Review runs" });
+    fireEvent.click(pill);
+
+    expect(onOpenFinding).toHaveBeenCalledWith("f-server/src/service.ts-3");
+  });
+
+  it("gives every rendered line a data-diff-line anchor (not just flagged ones) so a finding from an older run — absent from this overlay — still scrolls+flashes", async () => {
+    // newNo=2 ("added line") carries no finding overlay in this file's `findings`
+    // (only newNo=3 does) — mirrors an older run's finding with no `finding_lines`
+    // entry. focusTarget simulates the resolved file:line for that finding id.
+    renderWithIntl(
+      <SmartDiffViewer
+        smartDiff={smartDiff(false)}
+        files={files}
+        findings={reviewRow.findings}
+        focusTarget={{ file: "server/src/service.ts", line: 2, nonce: 1 }}
+      />,
+    );
+
+    const el = document.querySelector('[data-diff-line="server/src/service.ts:2"]');
+    expect(el).not.toBeNull();
+    // Unflagged: no severity pill on this line.
+    expect(within(el as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(el).toHaveClass("dd-finding-flash");
+    });
   });
 });

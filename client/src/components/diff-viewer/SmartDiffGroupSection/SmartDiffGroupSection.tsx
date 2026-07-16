@@ -16,9 +16,19 @@ export interface SmartDiffGroupSectionProps {
   patches: Map<string, string | null>;
   findingsFor: (path: string) => FindingRecord[];
   commenting?: DiffCommentApi;
+  /** Threaded through to SmartDiffFileCard — see its prop docs. */
+  focusTarget?: { file: string; line: number; nonce: number } | null;
+  onOpenFinding?: (findingId: string) => void;
 }
 
-export function SmartDiffGroupSection({ group, patches, findingsFor, commenting }: SmartDiffGroupSectionProps) {
+export function SmartDiffGroupSection({
+  group,
+  patches,
+  findingsFor,
+  commenting,
+  focusTarget,
+  onOpenFinding,
+}: SmartDiffGroupSectionProps) {
   const t = useTranslations("shell");
   if (group.files.length === 0) return null;
   const meta = SMART_DIFF_ROLE_META[group.role];
@@ -55,6 +65,8 @@ export function SmartDiffGroupSection({ group, patches, findingsFor, commenting 
               findings={findings}
               defaultOpen={defaultOpen}
               commenting={commenting}
+              focusTarget={focusTarget}
+              onOpenFinding={onOpenFinding}
             />
           );
         })}
