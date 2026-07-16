@@ -254,6 +254,7 @@ export interface MockGitOptions {
 export class MockGitClient implements GitClient {
   public cloned: { repo: RepoRef; url: string }[] = [];
   public syncs: { repo: RepoRef; branch: string }[] = [];
+  public prepareReviewDiffCalls: { repo: RepoRef; baseRef: string; prNumber: number }[] = [];
   private syncedHead?: string;
 
   constructor(private opts: MockGitOptions = {}) {}
@@ -265,7 +266,9 @@ export class MockGitClient implements GitClient {
     this.cloned.push({ repo, url });
     return { path: this.clonePathFor(repo) };
   }
-  async fetchPullHead(): Promise<void> {}
+  async prepareReviewDiff(repo: RepoRef, baseRef: string, prNumber: number): Promise<void> {
+    this.prepareReviewDiffCalls.push({ repo, baseRef, prNumber });
+  }
   async sync(repo: RepoRef, branch: string): Promise<{ head: string }> {
     this.syncs.push({ repo, branch });
     // After a sync, HEAD advances to syncedHead (or stays at head if unset).

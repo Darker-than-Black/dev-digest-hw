@@ -98,6 +98,15 @@ gate first, applied to every candidate path before the read call — see
 user-referenced file" feature instead of re-deriving the traversal check from scratch; this is
 exactly the kind of miss the `pr-self-review` gate treats as critical.
 
+### `GitClient` port method with zero callers = dead code hiding a real gap — check callers, not just existence
+`fetchPullHead(repo, n)` existed on the `GitClient` interface + both implementations (real +
+mock) but was never called anywhere — its existence made it *look* like the fork-PR-diff problem
+was already handled when it wasn't. Folded it into the new `prepareReviewDiff(repo, baseRef,
+prNumber)` (fetches base branch + PR head together, since `diff()`'s three-dot form needs both
+reachable for `merge-base`) rather than keeping two half-solutions. When a port method has an
+interface declaration + adapter impl but `grep -rn "methodName"` turns up only those two hits
+(no call site), don't assume the feature it backs actually works — trace the caller chain.
+
 ## Tool & Library Notes
 
 ### Drizzle `sum()` returns `string | null`, not number
@@ -168,6 +177,21 @@ compose route should stay unthrottled.
 
 ## Recurring Errors & Fixes
 
+### A bare `catch {}` around `container.git.diff()` made every fork/fresh PR review "approve" with score 100
+`modules/reviews/diff-loader.ts` swallowed the "bad revision" thrown when the PR head sha wasn't
+in the local clone (depth-1, default-branch-only — see `repos/constants.ts` `CLONE_DEPTH`), then
+silently fell back to `diffFromPrFiles`, which is ALSO empty for a fresh/fork PR (see the "A live
+review needs a real diff" entry above — same empty-diff symptom, different root cause: that one is
+seed data with `patch: null`, this one is a real clone missing the commit). Net effect: the LLM got
+an empty diff and returned 0 findings / a clean verdict — indistinguishable from a genuinely clean
+PR. Fix: `GitClient.prepareReviewDiff(repo, baseRef, prNumber)` fetches the base branch AND
+`origin pull/<n>/head` (with `REVIEW_DIFF_FETCH_DEPTH=200`, `adapters/git/simple-git.ts`) into the
+clone before diffing — best-effort, non-fatal — and the `diff()` catch now logs the error via an
+injected `Logger` instead of discarding it. **Any `catch {}`/`catch { /* comment */ }` with no log
+call around an external I/O call (git/LLM/GitHub) is a latent "silent wrong answer" bug** — grep
+for bare catches before trusting a fallback path is actually reached only on the condition it
+claims to be. See `modules/reviews/diff-loader.ts` + `diff-loader.test.ts`.
+
 ### `cost_usd` missing in RunStats/RunSummary fixtures → Zod/TS failures
 Adding a required field to a contract breaks every test fixture that builds it. After editing
 `vendor/shared/contracts/trace.ts`, fix `test/contracts.test.ts` (the `RunTrace.parse` stats
@@ -231,6 +255,24 @@ exact-path + `start_line`, and proposes a same-directory split when total churn 
 threshold. Zero LLM calls, zero writes — see the new "Pure read-compose module shape" pattern
 above. `pseudocode_summary` is a locked-`null` field on `SmartDiffFile` (reserved for a future
 LLM-backed enhancement, not wired here). No migration — reads only `pr_files`/`findings`/`reviews`.
+
+### 2026-07-16 — Fix empty-diff/false-approve bug for fork & fresh PRs
+Root cause: shallow depth-1 clone (default branch only) never had a fork/fresh PR's head commit,
+`container.git.diff(base...head)` threw "bad revision," and a bare `catch {}` in
+`modules/reviews/diff-loader.ts` masked it before falling back to an also-empty `pr_files`
+reconstruction — reviews "approved" with 0 findings / score 100. Added `GitClient.prepareReviewDiff
+(repo, baseRef, prNumber)` (`vendor/shared/adapters.ts`, `adapters/git/simple-git.ts` — new
+`REVIEW_DIFF_FETCH_DEPTH=200` const, `adapters/mocks.ts`), called best-effort from `loadDiff`
+before `diff()`; folded the dead-code `fetchPullHead` into it. `loadDiff` now takes an optional
+`Logger` (reused from `run-executor.ts`) and logs both the prepare-failure and the diff-failure
+instead of discarding them; `run-executor.ts` bridges its `RunLogger` into that `Logger` shape so
+the reason shows up in the run's Live Log. New hermetic `diff-loader.test.ts` (mocked
+`container.git` + `ReviewRepository`, no DB). MCP server (`mcp/`) is a thin proxy over this API —
+this fix is what makes `run_agent_on_pr` produce a real review for a fork/fresh PR end-to-end.
+`client/src/vendor/shared/adapters.ts`'s `GitClient` copy was already stale/divergent from the
+server's before this change (missing several other fields too) — **not** updated here (out of
+front-end scope; it has no `git` consumer since git access is server-only), flagged for whoever
+next reconciles the vendored copies.
 
 ## Open Questions
 
