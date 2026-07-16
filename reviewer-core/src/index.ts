@@ -15,6 +15,7 @@
 export {
   assemblePrompt,
   wrapUntrusted,
+  INJECTION_GUARD,
   type PromptParts,
   type AssembledPrompt,
 } from './prompt.js';
@@ -57,3 +58,11 @@ export {
 // The single OpenAI-compatible structured provider (OpenRouter), shared by the
 // CI runner and the server's openrouter path. Owns session grouping + guards.
 export { OpenRouterProvider, type OpenRouterProviderOptions } from './llm/openrouter.js';
+
+// Intent layer — a cheap, metadata-only LLM call that derives a PR's intent/scope
+// (no diff bodies; pure, LLM injected).
+export {
+  deriveIntent,
+  type DeriveIntentInput,
+  type DeriveIntentOutcome,
+} from './intent.js';

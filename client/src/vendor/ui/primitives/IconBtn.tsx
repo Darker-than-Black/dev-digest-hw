@@ -8,6 +8,8 @@ export function IconBtn({
   active,
   onClick,
   danger,
+  disabled,
+  loading,
 }: {
   icon: IconName;
   label: string;
@@ -15,14 +17,19 @@ export function IconBtn({
   active?: boolean;
   onClick?: () => void;
   danger?: boolean;
+  disabled?: boolean;
+  /** Spins the icon and implies `disabled` — use for an in-flight async action. */
+  loading?: boolean;
 }) {
   const I = Icon[icon];
   const [h, setH] = React.useState(false);
   return (
     <button
+      type="button"
       title={label}
       aria-label={label}
       onClick={onClick}
+      disabled={disabled || loading}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       style={{
@@ -35,9 +42,11 @@ export function IconBtn({
         background: h ? "var(--bg-hover)" : active ? "var(--bg-hover)" : "transparent",
         color: danger && h ? "var(--crit)" : active || h ? "var(--text-primary)" : "var(--text-secondary)",
         transition: "background .12s, color .12s",
+        opacity: disabled || loading ? 0.6 : 1,
+        cursor: disabled || loading ? "not-allowed" : "pointer",
       }}
     >
-      <I size={Math.round(size * 0.52)} />
+      <I size={Math.round(size * 0.52)} style={loading ? { animation: "ddspin 1s linear infinite" } : undefined} />
     </button>
   );
 }

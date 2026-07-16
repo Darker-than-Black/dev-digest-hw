@@ -27,6 +27,7 @@ import { AgentsRepository } from '../modules/agents/repository.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
+import { IntentService } from '../modules/intent/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
 
@@ -48,6 +49,8 @@ export interface ContainerOverrides {
   llm?: Partial<Record<'openai' | 'anthropic' | 'openrouter', LLMProvider>>;
   /** repo-intel facade (T1.1+) — tests inject mock RepoIntel implementations. */
   repoIntel?: RepoIntel;
+  /** intent-layer service — tests inject a mock to swap the LLM derive path. */
+  intent?: IntentService;
   /** repo-intel T3 adapters — only the indexer pipeline reads these. */
   depgraph?: DepGraph;
   tokenizer?: Tokenizer;
@@ -73,6 +76,7 @@ export class Container {
   private _agentsRepo?: AgentsRepository;
   private _reviewRepo?: ReviewRepository;
   private _repoIntel?: RepoIntel;
+  private _intent?: IntentService;
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
   private _priceBook?: PriceBook;
@@ -115,6 +119,18 @@ export class Container {
     if (this.overrides.repoIntel) return this.overrides.repoIntel;
     this._repoIntel ??= new RepoIntelService(this);
     return this._repoIntel;
+  }
+
+  /**
+   * Intent-layer facade. Derives + persists a PR's `Intent`; consumed by the
+   * `intent` module routes AND the reviews `run-executor` (auto-compute on first
+   * review). Constructed here so run-executor doesn't reach into the intent
+   * module's folder, and so tests inject a mock via `ContainerOverrides.intent`.
+   */
+  get intent(): IntentService {
+    if (this.overrides.intent) return this.overrides.intent;
+    this._intent ??= new IntentService(this);
+    return this._intent;
   }
 
   /** Import-graph builder (dependency-cruiser). T3 indexer pipeline only. */

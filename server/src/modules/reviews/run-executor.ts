@@ -1,5 +1,5 @@
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
+import type { Intent, Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
 import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
@@ -104,6 +104,18 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // Auto-compute-on-first-review (compute-if-missing): best-effort, shared
+    // pre-work like the diff load above, but NEVER fails the review — an
+    // unavailable intent source just means the `## Review scope` section is
+    // omitted downstream (identical to the pre-intent prompt).
+    const intent = await runLog
+      .step(
+        'Deriving PR intent',
+        () => this.container.intent.computeIntent(workspaceId, pull.id, { force: false }),
+        { kind: 'tool' },
+      )
+      .catch(() => undefined);
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -111,7 +123,7 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, intent);
         logger?.info(
           {
             runId,
@@ -143,6 +155,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    intent: Intent | undefined,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -183,6 +196,11 @@ export class ReviewRunExecutor {
 
       const task = taskLine(pull) + rankNote;
 
+      // Intent layer — format the derived Intent into a compact string for the
+      // `## Review scope` prompt section. Omitted (undefined) when auto-compute
+      // failed/was skipped; the prompt is then identical to the pre-intent shape.
+      const intentText = intent ? this.formatIntent(intent) : undefined;
+
       // Skills — the agent's linked skill bodies become the `## Skills / rules`
       // prompt block (in link order). A body is included only when BOTH the
       // skill is globally enabled AND the per-agent link is enabled; disabled
@@ -217,6 +235,9 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // Derived intent/scope — untrusted, delimiter-wrapped downstream.
+        // Omitted when auto-compute failed/was skipped (prompt unchanged).
+        ...(intentText ? { intent: intentText } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -327,6 +348,17 @@ export class ReviewRunExecutor {
       this.container.runBus.complete(runId);
       throw err;
     }
+  }
+
+  /** Format a derived `Intent` into the compact string `reviewPullRequest` wraps. */
+  private formatIntent(intent: Intent): string {
+    const inScope = intent.in_scope.map((s) => `- ${s}`).join('\n');
+    const outOfScope = intent.out_of_scope.map((s) => `- ${s}`).join('\n');
+    return (
+      intent.intent +
+      (inScope ? `\n\nIn scope:\n${inScope}` : '') +
+      (outOfScope ? `\n\nOut of scope:\n${outOfScope}` : '')
+    );
   }
 
   /**

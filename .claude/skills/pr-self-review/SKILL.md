@@ -62,36 +62,18 @@ If the user asks to push and this review has not run this turn → run it first,
    - `pnpm -C <pkg> test` (for packages with changed source)
    - `cd server && pnpm db:migrate` status if `server/**/schema*` or migrations changed
 
-## File classification
+## File classification & skill map
 
-| Path glob | Side | Notes |
-|-----------|------|-------|
-| `client/**` | **front-end** | Next.js studio (`@devdigest/web`) |
-| `server/**` (excl. `clones/**`) | **back-end** | Fastify API (`@devdigest/api`) |
-| `reviewer-core/**` | **back-end** | pure TS engine — keep it DB/IO-free |
-| `**/*.schema.ts`, `**/vendor/shared/**`, Zod contracts | **shared** | load `zod` on either side |
-| `e2e/**` | **back-end-ish** | deterministic browser e2e (see TESTING.md) |
-| `*.md`, `scripts/**`, config, `docker-compose*` | **other** | light review; skip arch skills |
-| `server/clones/**` | **ignore** | vendored clones — never review |
+The file-classification table and the front-end / back-end / shared **skill map** live in one
+shared source of truth: **`docs/skill-map.md`** (repo-root relative). Read it, classify
+each changed file, then load and apply the mapped skills for that side. The same file is used by
+the `planner` and `implementer` agents, so classification never drifts between review and build.
 
-## Skill map — which skills apply to which side
-
-**Front-end files (`client/**`)** — load and apply:
-- `ui-architecture` — where a component lives, splitting, business-logic/constants placement, client-vs-server state, prop/composition design, a11y/Web-Vitals
-- `react-best-practices` — hooks misuse, derive-don't-store, keys, memoization, conditional rendering
-- `next-best-practices` — RSC boundaries, `page.tsx`/`layout.tsx`, async APIs, metadata, route handlers, image/font
-- `react-testing-library` — component/hook tests (Vitest + jsdom) for changed UI
-
-**Back-end files (`server/**`, `reviewer-core/**`)** — load and apply:
-- `onion-architecture` — the 4 rings (domain → application → infrastructure → transport), inward-only dependency rule, module/DI placement, keep `reviewer-core` pure
-- `fastify-best-practices` — routes/plugins/hooks, JSON-schema validation, error handling, serialization
-- `drizzle-orm-patterns` — schema, queries, relations, transactions, migrations
-- `postgresql-table-design` — data types, indexing, constraints, perf
-
-**Shared / either side (load when relevant lines are touched):**
-- `zod` — any `z.object`/contract change (loads on both sides)
-- `typescript-expert` — tricky types on changed lines
-- `security` — auth, input handling, file uploads, secrets, API endpoints (**always** load when a back-end route or any input-boundary changes)
+Quick recap (authoritative version in `docs/skill-map.md`):
+- `client/**` → **front-end**: `ui-architecture`, `react-best-practices`, `next-best-practices`, `react-testing-library`
+- `server/**` (excl. `clones/**`), `reviewer-core/**` → **back-end**: `onion-architecture`, `fastify-best-practices`, `drizzle-orm-patterns`, `postgresql-table-design`
+- `**/*.schema.ts`, `vendor/shared/**`, Zod contracts → **shared**: `zod`, `typescript-expert`, `security`
+- `server/clones/**` → **ignore** (vendored)
 
 ## Severity rubric
 

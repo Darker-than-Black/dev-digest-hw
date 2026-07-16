@@ -30,7 +30,11 @@ composes 3 of them; `FindingsPopoverBar` wraps that with a popover.
 `@devdigest/shared` (server is source of truth). Adding a field (e.g. `cost_usd` on
 `RunStats`/`RunSummary`/`PrMeta`) requires the **same edit in both** `server/src/vendor/shared/`
 and `client/src/vendor/shared/` or types drift and tests show "two different types with this
-name exist". See [../server/insights.md](../server/insights.md).
+name exist". See [../server/insights.md](../server/insights.md). Note: `FEATURE_MODELS`
+(`lib/feature-models.ts`) is a THIRD, separately hand-mirrored registry — a runtime array, not a
+type, so it lives outside `vendor/shared` entirely (see "Never import `@devdigest/shared` as a
+RUNTIME value" below) and must be kept in sync with `server/src/vendor/shared/contracts/platform.ts`
+by hand on every default-model change (confirmed again for `review_intent`'s flash-model flip).
 
 ### PR-list table is grid-driven by 3 files in lockstep
 A new column = edit all of: `constants.ts` `GRID` track string (add width) + `COLUMN_KEYS`
@@ -63,6 +67,33 @@ absolutely-positioned popover inside a row gets clipped. Render the panel via
 seeded `reviews` can have `run_id === null` — so open the accordion by **matching the finding id
 against `review.findings`**, NOT by `run_id` (the existing Timeline `targetRunId` path silently
 no-ops for null run_id). `ReviewRunAccordion` takes `openFindingId`+`openNonce`.
+
+### Container-tier PR-detail cards own their own data hooks — no server-passed mirror state
+`IntentCard` takes only `{prId}` and calls `usePrIntent(prId)`/`useRecomputeIntent(prId)` itself
+rather than receiving already-fetched data as props — matches `VerdictBanner`'s shape (and the
+sibling cards in `_components/`). Keep new PR-detail cards on this pattern: the card is the
+container (fetches + owns loading/error/mutation state), `OverviewTab`/`page.tsx` only pass the
+id.
+
+### A shared folder's private (non-exported) internals can force colocation over route-local placement
+`ui-architecture`'s default is "start route-local (`_components/`), promote to a shared folder on
+the 2nd consumer." The Smart Diff components (`SmartDiffFileCard`, `SmartDiffGroupSection`,
+`SmartDiffViewer`, `SplitSuggestionBanner`) break that default on the *first* consumer: they live
+directly in `components/diff-viewer/` because they need `parsePatch`, `CodeLine`, the `s` style
+map, and `chevronFor` — internals the folder's `index.ts` barrel deliberately does NOT export (see
+the barrel's own comment: "Internals … stay private to this folder"). A route-local component
+can only import a folder's public barrel, so when a new component needs another folder's private
+internals, colocate inside that folder instead of duplicating the internals route-local. This is
+a deliberate exception, not a violation — will recur for any future diff-adjacent component.
+
+### Vendored UI primitive missing a prop your feature needs → extend it in place, don't hand-roll
+`vendor/ui/primitives/IconBtn.tsx` had no `disabled`/`loading` affordance before the Intent card
+needed a "recompute, spin + disable while pending" icon button. Added `disabled?`/`loading?`
+(loading implies disabled; spins the icon via the existing `ddspin` keyframe from
+`vendor/ui/styles.css`, same pattern already used by `Button.tsx`/`ReviewRunAccordion.tsx`/
+`AgentCard.tsx` delete buttons) — additive, no existing caller passes the new props so nothing
+else changes. `vendor/ui` is vendored specifically so it CAN be edited; prefer extending a
+primitive over duplicating its markup inline in a new component.
 
 ## Tool & Library Notes
 
@@ -98,6 +129,15 @@ loads — but importing a zod schema as a *value* (`SkillType.options`, `SkillSl
 bundles the whole barrel and breaks the build at the importing page. Mirror the constant/regex
 locally instead (`SKILL_TYPES`, `isValidSlug` in `app/skills/helpers.ts`) and keep
 `import type { … } from "@devdigest/shared"`. Complements the "contracts vendored twice" note above.
+This is also why `lib/feature-models.ts`'s `FEATURE_MODELS` is a hand-mirrored plain array rather
+than importing the server's — importing the real registry as a value would bundle the whole
+`vendor/shared` barrel. The same restriction forces duplicated **business logic**, not just data:
+`lib/smart-diff.ts`'s `lastReview()` (newest `kind==='review'` row) reimplements the identical
+rule already living in `server/src/modules/smart-diff/service.ts`, because a shared runtime
+helper would need a value import across the boundary. Treat this as the correct, accepted answer
+for any future cross-boundary business rule (not just constants) — don't chase a "shared util"
+refactor across `client`/`server`; instead keep both copies short, comment each with a pointer to
+its twin, and grep for the twin before changing either.
 
 ### `pnpm build` while `next dev` is live corrupts `.next` → `Cannot find module './975.js'`
 A production build writes the same `.next/` the running dev server serves from, clobbering
@@ -137,8 +177,37 @@ existing `Skill`/`AgentSkillLink` contracts (edited BOTH vendored copies). Nav: 
 Copy in `messages/en/skills.json` (rewrote the older starter draft). Server →
 [../server/insights.md](../server/insights.md).
 
+### 2026-07-15 — Intent Card (PR-detail) + client half of the model-default flip
+New `IntentCard/` (`_components/`, mirrors `VerdictBanner/`) slotted into `OverviewTab` above the
+PR description; `usePrIntent`/`useRecomputeIntent` hooks (`lib/hooks/intent.ts`, TanStack Query
+key `["pr-intent", prId]`). Extended `vendor/ui/primitives/IconBtn.tsx` with `disabled`/`loading`
+for the recompute button's spinner. `review_intent`'s default flipped to
+`openrouter/deepseek-v4-flash` in `lib/feature-models.ts` — byte-matched against
+`server/src/vendor/shared/contracts/platform.ts` (see [../server/insights.md](../server/insights.md)).
+i18n reused existing `block.intent`/`unavailable`/`unavailableHint`, added `inScope`/`outOfScope`/
+`recompute`/`recomputing` to `messages/en/brief.json`. `client/src/vendor/shared/contracts/platform.ts`
+(the types-only vendored mirror, separate from `lib/feature-models.ts`) was intentionally left
+un-synced — it's dead at runtime (client never imports `FEATURE_MODELS` as a value from
+`vendor/shared`) but is now stale text; worth a follow-up sweep if anyone diffs the two files.
+
+### 2026-07-15 — Smart Diff panel (Files-changed tab: risk groups + last-review overlay)
+New `SmartDiffViewer`/`SmartDiffGroupSection`/`SmartDiffFileCard`/`SplitSuggestionBanner`
+(`components/diff-viewer/`, colocated for barrel-private-internal access — see the new
+"private internals force colocation" pattern above) plus `lib/smart-diff.ts` (`lastReview`,
+`findingsByLine`, `topSeverity` — pure, no fetch). `DiffTab.tsx` gains a toggle (via two `Chip`s
+in `SectionLabel`'s `right` slot) between the existing unified `DiffViewer` and the new
+`SmartDiffViewer`; data comes from `useSmartDiff` (`lib/hooks/reviews.ts`). `vendor/ui/primitives/
+Chip.tsx` got a `disabled` prop — same "extend the vendored primitive in place" pattern as
+`IconBtn.tsx`'s `disabled`/`loading` (see above), not a new lesson. Server → [../server/insights.md](../server/insights.md).
+
 ## Open Questions
 
 ### No `PRRow.test.tsx` — COST column render is untested
 `PRRow` has no test file; the new COST cell is covered only by typecheck. Timeline + drawer cost
 ARE unit-tested (`RunHistory.test.tsx`, `RunTraceDrawer.test.tsx`).
+
+### `IntentCard` has no test coverage yet
+Tests were explicitly deferred (user request) for the Intent layer pass. When added: RTL tests
+for the populated state (intent + in/out-of-scope lists), the null/`unavailable` state, and that
+clicking recompute calls the mutation and disables the button while pending — mirror whatever
+`VerdictBanner.test.tsx` does, if it has one, for the loading-state assertions.

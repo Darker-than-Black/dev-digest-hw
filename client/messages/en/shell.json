@@ -40,6 +40,35 @@
     "reply": "Reply",
     "viewOnGitHub": "View on GitHub",
     "postedToGitHub": "Posts to GitHub immediately",
-    "outdatedTitle": "{count} comment(s) on older revisions"
+    "outdatedTitle": "{count} comment(s) on older revisions",
+    "filesChangedHeader": "Files changed · {count, plural, one {# file} other {# files}} · +{additions} −{deletions}",
+    "smartDiff": {
+      "title": "Reviewer-ordered diff",
+      "order": {
+        "smart": "Smart order",
+        "original": "Original order"
+      },
+      "role": {
+        "core": {
+          "title": "Core logic",
+          "hint": "The substance of the change — review closely"
+        },
+        "wiring": {
+          "title": "Wiring",
+          "hint": "Hooks the core into the app"
+        },
+        "boilerplate": {
+          "title": "Boilerplate",
+          "hint": "Generated / mechanical — skim"
+        }
+      },
+      "fileCount": "{count, plural, one {# file} other {# files}}",
+      "findingCount": "{count, plural, one {# finding} other {# findings}}",
+      "split": {
+        "title": "This PR looks big for one review pass",
+        "totalLines": "{count, plural, one {# changed line} other {# changed lines}}",
+        "splitFiles": "{count, plural, one {# file} other {# files}}"
+      }
+    }
   }
 }
