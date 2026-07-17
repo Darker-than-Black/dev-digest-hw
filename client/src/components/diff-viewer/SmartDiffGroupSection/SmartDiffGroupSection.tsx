@@ -17,7 +17,7 @@ export interface SmartDiffGroupSectionProps {
   findingsFor: (path: string) => FindingRecord[];
   commenting?: DiffCommentApi;
   /** Threaded through to SmartDiffFileCard — see its prop docs. */
-  focusTarget?: { file: string; line: number; nonce: number } | null;
+  focusTarget?: { file: string; line: number | null; nonce: number } | null;
   onOpenFinding?: (findingId: string) => void;
 }
 

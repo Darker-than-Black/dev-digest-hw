@@ -39,6 +39,25 @@ export class ReviewRepository {
     return pullRepo.getPrFiles(this.db, prId);
   }
 
+  /** Prior PRs (workspace- AND repo-scoped, excluding `excludePrId`) whose
+   *  `pr_files` overlap `filePaths`, newest first — blast's "prior PRs" list. */
+  getPriorPullsForFiles(
+    workspaceId: string,
+    repoId: string,
+    excludePrId: string,
+    filePaths: string[],
+    limit: number,
+  ): Promise<pullRepo.PriorPullRow[]> {
+    return pullRepo.getPriorPullsForFiles(
+      this.db,
+      workspaceId,
+      repoId,
+      excludePrId,
+      filePaths,
+      limit,
+    );
+  }
+
   // ---- reviews + findings -------------------------------------------------
 
   insertReview(values: {

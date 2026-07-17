@@ -204,7 +204,6 @@ export interface GitCommit {
 
 export interface GitClient {
   clone(repo: RepoRef, url: string, opts?: CloneOptions): Promise<{ path: string }>;
-  fetchPullHead(repo: RepoRef, n: number): Promise<void>;
   /**
    * Resync an already-cloned repo to the tip of `branch`: fetch from origin and
    * advance the local working tree to `origin/<branch>`. Unlike `clone`'s bare
@@ -213,6 +212,18 @@ export interface GitClient {
    */
   sync(repo: RepoRef, branch: string): Promise<{ head: string }>;
   currentHead(repo: RepoRef): Promise<string>;
+  /**
+   * Fetch what `diff()` needs to review one PR: the base branch AND the PR
+   * head (`origin pull/<n>/head`, GitHub's synthetic ref for a PR's tip —
+   * reachable even for a fork PR whose commits never touched the default
+   * branch) into local refs, with enough depth that `merge-base(base, head)`
+   * is resolvable for the three-dot diff. Does NOT move the clone's local
+   * HEAD/worktree (unlike `sync()`'s `reset --hard`) — the repo-intel indexer
+   * tracks HEAD / last_indexed_sha and must not see it jump. Best-effort:
+   * offline/network failures are the caller's to catch (see
+   * `modules/reviews/diff-loader.ts`).
+   */
+  prepareReviewDiff(repo: RepoRef, baseRef: string, prNumber: number): Promise<void>;
   diff(repo: RepoRef, base: string, head: string): Promise<UnifiedDiff>;
   /**
    * Names of files changed between two commits (`git diff --name-only base..head`).

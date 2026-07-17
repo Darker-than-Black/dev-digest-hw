@@ -19,13 +19,28 @@ interface DiffTabProps {
       Resolved to a file+line here (any run's findings, not just the last-review
       overlay) and forces Smart order so the target's anchor is visible. */
   focusFindingId?: string | null;
+  /** Cross-tab: a Blast Radius caller/symbol/endpoint click (Overview tab) —
+      `?tab=diff&blastFocus=<file>[:<line>]`, already parsed by the page. Unlike
+      `focusFindingId` there's no lookup — the file (+ line, when known) is
+      already the target. `line: null` focuses the file card only (symbols have
+      no line in their contract; endpoints aren't line-indexed by the repo
+      index) — see SmartDiffFileCard's `focusTarget` prop docs. */
+  blastFocus?: { file: string; line: number | null } | null;
   /** Reverse cross-tab nav: a per-line severity pill click → open that finding
       in the Findings tab (`?tab=findings&finding=<id>`). Container-tier owns
       routing; the diff-viewer components below only call this callback. */
   onOpenFinding?: (findingId: string) => void;
 }
 
-export function DiffTab({ prId, filesCount, files, canComment, focusFindingId, onOpenFinding }: DiffTabProps) {
+export function DiffTab({
+  prId,
+  filesCount,
+  files,
+  canComment,
+  focusFindingId,
+  blastFocus,
+  onOpenFinding,
+}: DiffTabProps) {
   const t = useTranslations("shell");
   const { data: comments } = usePrComments(prId);
   const create = useCreatePrComment(prId);
@@ -45,7 +60,9 @@ export function DiffTab({ prId, filesCount, files, canComment, focusFindingId, o
   // (mirrors the server's `SmartDiffService`, which builds `finding_lines`
   // from every review row too).
   const allFindings = React.useMemo(() => reviewFindings(reviewsData), [reviewsData]);
-  const [focusTarget, setFocusTarget] = React.useState<{ file: string; line: number; nonce: number } | null>(null);
+  const [focusTarget, setFocusTarget] = React.useState<
+    { file: string; line: number | null; nonce: number } | null
+  >(null);
   React.useEffect(() => {
     if (!focusFindingId) return;
     const target = allFindings.find((f) => f.id === focusFindingId);
@@ -56,6 +73,17 @@ export function DiffTab({ prId, filesCount, files, canComment, focusFindingId, o
     setFocusTarget((p) => ({ file: target.file, line: target.start_line, nonce: (p?.nonce ?? 0) + 1 }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusFindingId, allFindings]);
+
+  // Blast Radius already knows the file(+line) — no lookup needed, unlike
+  // the finding case above. Deps are the primitive file/line, not the
+  // `blastFocus` object itself (a fresh object every render from the page's
+  // URL-param parsing would otherwise refire this on every render).
+  React.useEffect(() => {
+    if (!blastFocus) return;
+    setSmartOrder(true);
+    setFocusTarget((p) => ({ file: blastFocus.file, line: blastFocus.line, nonce: (p?.nonce ?? 0) + 1 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blastFocus?.file, blastFocus?.line]);
 
   const commentCount = comments?.length ?? 0;
   const totals = files.reduce(

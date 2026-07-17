@@ -46,14 +46,31 @@ function groupByLine(findings: FindingRecord[]): Map<number, FindingRecord[]> {
   return map;
 }
 
-/** Scroll a `[data-diff-line]` anchor into view + flash it, or no-op when the
-   anchor isn't rendered (file not in the diff, or a null-patch file that
-   never renders any lines). Shared by the header badge's jumpToFirstFinding
-   and the incoming cross-tab focusTarget effect below. */
-function scrollAndFlash(selector: string): void {
+const SCROLL_RETRY_MS = 150;
+const SCROLL_RETRY_ATTEMPTS = 10; // ~1.5s total — covers the smart-diff query
+// still being in flight when the target anchor's effect first fires.
+
+/** Scroll a `[data-diff-line]`/`[data-file-card]` anchor into view + flash
+   it. The anchor may not exist YET on the first attempt — e.g. Smart order
+   was just forced on but `useSmartDiff` hasn't resolved, so this file's
+   `SmartDiffFileCard` (and its anchors) haven't mounted at all — so this
+   retries for ~1.5s before giving up, rather than a single fixed-delay
+   attempt that silently no-ops if the DOM isn't ready yet. Shared by the
+   header badge's jumpToFirstFinding and the incoming cross-tab focusTarget
+   effect below. */
+function scrollAndFlash(selector: string, attempt = 0): void {
   const el = document.querySelector(selector);
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (!el) {
+    if (attempt < SCROLL_RETRY_ATTEMPTS) {
+      window.setTimeout(() => scrollAndFlash(selector, attempt + 1), SCROLL_RETRY_MS);
+    }
+    return;
+  }
+  // `behavior:"auto"`, NOT `"smooth"`: a programmatic smooth scroll silently
+  // no-ops on the app's nested `<main overflow:auto>` scroll container for
+  // far/off-screen targets (verified: smooth left scrollTop at 0; auto jumps
+  // correctly). Correctness of the jump beats the scroll animation.
+  el.scrollIntoView({ behavior: "auto", block: "center" });
   el.classList.add("dd-finding-flash");
   window.setTimeout(() => el.classList.remove("dd-finding-flash"), 1500);
 }
@@ -68,8 +85,11 @@ export interface SmartDiffFileCardProps {
   /** Cross-tab: a finding's file:line click (Findings tab) resolved to a
       file+line to open/scroll/flash on arrival. Only acted on when it targets
       THIS file — every other file card no-ops. `nonce` re-fires on repeat
-      clicks to the same finding. */
-  focusTarget?: { file: string; line: number; nonce: number } | null;
+      clicks to the same finding. `line: null` = focus the FILE only (open +
+      scroll the card into view), no per-line flash — used by Blast Radius's
+      symbol/endpoint clicks, which know the file but have no line (endpoints
+      aren't line-indexed; a changed symbol's own contract has no line field). */
+  focusTarget?: { file: string; line: number | null; nonce: number } | null;
   /** Reverse cross-tab nav: a per-line severity pill click → open that
       finding in the Findings tab (`?tab=findings&finding=<id>`). */
   onOpenFinding?: (findingId: string) => void;
@@ -112,21 +132,28 @@ export function SmartDiffFileCard({
     window.setTimeout(() => scrollAndFlash(`[data-diff-line="${file.path}:${firstLine}"]`), 320);
   }, [file.path, file.finding_lines]);
 
-  // Incoming cross-tab jump (a finding's file:line click on the Findings tab).
-  // Only this file's card acts when `focusTarget.file` matches; every other
-  // card's effect is a no-op. Opens the card first (mirrors jumpToFirstFinding
-  // above) so a collapsed file still reveals its target line. Works for ANY
-  // finding — including one from an older run with no `finding_lines` entry —
-  // because every line with a `newNo` carries a `data-diff-line` anchor now.
+  // Incoming cross-tab jump (a finding's file:line click on the Findings tab,
+  // or a Blast Radius caller/symbol/endpoint click). Only this file's card
+  // acts when `focusTarget.file` matches; every other card's effect is a
+  // no-op. Opens the card first (mirrors jumpToFirstFinding above) so a
+  // collapsed file still reveals its target. A finding target always has a
+  // `line` and works for ANY finding — including one from an older run with
+  // no `finding_lines` entry — because every line with a `newNo` carries a
+  // `data-diff-line` anchor now. `line: null` (file-only target) instead
+  // scrolls the file card's own header into view via `data-file-card`.
   React.useEffect(() => {
     if (!focusTarget || focusTarget.file !== file.path) return;
     setOpen(true);
-    window.setTimeout(() => scrollAndFlash(`[data-diff-line="${file.path}:${focusTarget.line}"]`), 320);
+    const selector =
+      focusTarget.line != null
+        ? `[data-diff-line="${file.path}:${focusTarget.line}"]`
+        : `[data-file-card="${file.path}"]`;
+    window.setTimeout(() => scrollAndFlash(selector), 320);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTarget?.nonce, focusTarget?.file, focusTarget?.line, file.path]);
 
   return (
-    <div data-role={role} style={s.fileCard}>
+    <div data-role={role} data-file-card={file.path} style={s.fileCard}>
       <div {...disclosureProps(() => setOpen((o) => !o), open)} style={s.fileHeader}>
         <Icon.ChevronRight size={13} style={chevronFor(open)} />
         <Icon.FileText size={14} style={s.fileIcon} />

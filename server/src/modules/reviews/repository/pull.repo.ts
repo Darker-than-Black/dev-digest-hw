@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { Intent } from '@devdigest/shared';
@@ -31,6 +31,59 @@ export async function getPrFiles(
   prId: string,
 ): Promise<(typeof t.prFiles.$inferSelect)[]> {
   return db.select().from(t.prFiles).where(eq(t.prFiles.prId, prId));
+}
+
+/** One prior PR touching at least one of `filePaths` — blast's "prior PRs" list. */
+export interface PriorPullRow {
+  id: string;
+  number: number;
+  title: string;
+  author: string;
+  openedAt: Date | null;
+}
+
+/**
+ * Prior PRs (excluding `excludePrId`) whose `pr_files` overlap `filePaths`,
+ * scoped to BOTH `workspaceId` AND `repoId` (same double gate as `getPull` —
+ * never leak another workspace's, or even another repo in the same
+ * workspace's, PRs into this list), newest first: `opened_at DESC NULLS LAST`
+ * (Postgres defaults DESC to `NULLS FIRST`, which would float un-opened rows
+ * to the top — explicit override), tiebroken by `number DESC`.
+ *
+ * `INNER JOIN` + `selectDistinct` collapses a PR that matches on MULTIPLE
+ * files down to one row — `id` is in the select list (even though callers
+ * don't need it) so `DISTINCT` dedupes by true PR identity, not by the
+ * display columns. `[]` on an empty `filePaths` — no I/O.
+ */
+export async function getPriorPullsForFiles(
+  db: Db,
+  workspaceId: string,
+  repoId: string,
+  excludePrId: string,
+  filePaths: string[],
+  limit: number,
+): Promise<PriorPullRow[]> {
+  if (filePaths.length === 0) return [];
+  return db
+    .selectDistinct({
+      id: t.pullRequests.id,
+      number: t.pullRequests.number,
+      title: t.pullRequests.title,
+      author: t.pullRequests.author,
+      openedAt: t.pullRequests.openedAt,
+    })
+    .from(t.pullRequests)
+    .innerJoin(t.prFiles, eq(t.prFiles.prId, t.pullRequests.id))
+    .where(
+      and(
+        eq(t.pullRequests.workspaceId, workspaceId),
+        eq(t.pullRequests.repoId, repoId),
+        ne(t.pullRequests.id, excludePrId),
+        inArray(t.prFiles.path, filePaths),
+      ),
+    )
+    .orderBy(sql`${t.pullRequests.openedAt} DESC NULLS LAST`, desc(t.pullRequests.number))
+    .limit(limit);
 }
 
 /**

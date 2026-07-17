@@ -219,4 +219,27 @@ describe("SmartDiffViewer", () => {
       expect(el).toHaveClass("dd-finding-flash");
     });
   });
+
+  it("a file-only focusTarget (line: null — Blast Radius symbol/endpoint clicks) opens and flashes the file card itself, not a line", async () => {
+    // "client/src/lib/hooks/index.ts" is already auto-expanded (small churn),
+    // so this also exercises the collapsed→open path for a file that ISN'T:
+    // "package-lock.json" starts collapsed (boilerplate, no findings).
+    renderWithIntl(
+      <SmartDiffViewer
+        smartDiff={smartDiff(false)}
+        files={files}
+        findings={reviewRow.findings}
+        focusTarget={{ file: "package-lock.json", line: null, nonce: 1 }}
+      />,
+    );
+
+    const pkgHeader = fileHeader("package-lock.json");
+    await waitFor(() => expect(pkgHeader).toHaveAttribute("aria-expanded", "true"));
+
+    const card = document.querySelector('[data-file-card="package-lock.json"]');
+    expect(card).not.toBeNull();
+    await waitFor(() => {
+      expect(card).toHaveClass("dd-finding-flash");
+    });
+  });
 });

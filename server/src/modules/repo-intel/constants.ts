@@ -30,6 +30,25 @@ export const EXCLUDED_DIRS = [
 export const MAX_CALLERS_PER_SYMBOL = 20;
 
 /**
+ * Blast-radius global SAFETY cap (T4, additive) — `tryPersistentBlast` no
+ * longer slices callers down to `MAX_CALLERS_PER_SYMBOL` globally (that lost
+ * per-symbol totals); it now returns every rank-sorted caller so `blast/`
+ * can compute true per-symbol totals + apply its own per-symbol cap. This is
+ * only a backstop against a pathological PR (huge fan-in across many changed
+ * symbols) blowing up the response — generous on purpose, expected to never
+ * bind in practice.
+ */
+export const MAX_CALLERS_GLOBAL_SAFETY_CAP = 500;
+
+/**
+ * Blast-radius reachable-endpoint BFS (`getReachableEndpointRefs`) node-visit
+ * cap — bounds the reverse-import walk on a pathological/highly-connected
+ * graph. When hit, the walk stops expanding but still returns whatever it
+ * found (never throws, never blocks the read).
+ */
+export const ENDPOINT_REACHABILITY_NODE_CAP = 5000;
+
+/**
  * [T1] Bumped whenever the AST extractor or symbol schema changes. A mismatch
  * with `repo_index_state.indexer_version` forces a full reindex.
  *
@@ -51,3 +70,35 @@ export const HOTNESS_WINDOW_DAYS = 180;
 export const DEFAULT_REPO_MAP_TOKEN_BUDGET = 1500;
 /** Signatures are trimmed to this many chars in the parse phase (cache stability). */
 export const MAX_SIGNATURE_CHARS = 120;
+
+/**
+ * Path kinds excluded from rank-driven file samples (conventions/onboarding)
+ * AND from blast-radius endpoint/cron attribution (a test/mock file that
+ * happens to contain a route-registration-looking line — `app.get(...)` in a
+ * supertest fixture, say — is noise, not a real endpoint). Substring match on
+ * the repo-relative path (kept deliberately simple + deterministic).
+ * Originally `getTopFilesByRank`-only; exported (2026-07-17) so `blast/
+ * helpers.ts` can reuse the SAME junk definition at read time rather than
+ * maintaining a second list that could drift.
+ */
+export const JUNK_PATH_PATTERNS = [
+  '.test.',
+  '.spec.',
+  '.d.ts',
+  '__tests__/',
+  '__mocks__/',
+  '/test/',
+  '/tests/',
+  '/migrations/',
+  '/__fixtures__/',
+  '.config.',
+  'vitest.',
+  'jest.',
+  'eslint',
+  'prettier',
+] as const;
+
+export function isJunkPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return JUNK_PATH_PATTERNS.some((p) => lower.includes(p));
+}

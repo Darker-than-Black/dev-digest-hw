@@ -92,11 +92,26 @@ export class ReviewRunExecutor {
       }
     };
 
+    // Bridge diff-loader's minimal pino-compatible `Logger.warn` onto this
+    // run's `RunLogger` so a swallowed git error (previously invisible) shows
+    // up in the Live Log / persisted trace, not just stdout.
+    const diffLogger: Logger = {
+      info: (obj, msg) => runLog.info(msg ?? '', obj),
+      warn: (obj, msg) => {
+        runLog.error(msg ?? 'diff warning', obj);
+        logger?.warn(obj, msg);
+      },
+      error: (obj, msg) => runLog.error(msg ?? '', obj),
+      debug: (obj, msg) => logger?.debug(obj, msg),
+    };
+
     let diff: UnifiedDiff;
     try {
-      diff = await runLog.step('Loading PR diff', () => loadDiff(this.container, this.repo, workspaceId, pull, repo), {
-        kind: 'tool',
-      });
+      diff = await runLog.step(
+        'Loading PR diff',
+        () => loadDiff(this.container, this.repo, workspaceId, pull, repo, diffLogger),
+        { kind: 'tool' },
+      );
     } catch (err) {
       runLog.error(`Failed to load PR diff: ${(err as Error).message}`);
       await failAll(`Failed to load PR diff: ${(err as Error).message}`);

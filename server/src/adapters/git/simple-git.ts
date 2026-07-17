@@ -20,6 +20,16 @@ import { parseUnifiedDiff } from './diff-parser.js';
 const RESYNC_FETCH_DEPTH = 50;
 
 /**
+ * Depth fetched by `prepareReviewDiff()` per ref (base branch + PR head) before
+ * a review diff. Deeper than `RESYNC_FETCH_DEPTH`: an incremental resync has a
+ * "fall back to full reindex" escape hatch when history is too shallow, but a
+ * review diff does not — if `merge-base(base, head)` isn't reachable the
+ * three-dot `diff()` throws and the review degrades to a possibly-empty
+ * `pr_files` reconstruction. Pay the extra fetch cost up front instead.
+ */
+const REVIEW_DIFF_FETCH_DEPTH = 200;
+
+/**
  * GitClient over simple-git. Repos clone to
  * `<cloneDir>/<owner>/<repo>`. We NEVER execute repo code — only git ops.
  */
@@ -69,9 +79,21 @@ export class SimpleGitClient implements GitClient {
     return { path: dest };
   }
 
-  async fetchPullHead(repo: RepoRef, n: number): Promise<void> {
-    // Fetch the PR head ref into a local ref (GitHub exposes pull/<n>/head).
-    await this.git(repo).fetch(['origin', `pull/${n}/head:pr-${n}`]);
+  async prepareReviewDiff(repo: RepoRef, baseRef: string, prNumber: number): Promise<void> {
+    const g = this.git(repo);
+    // Fetch the base branch's history WITHOUT touching local HEAD/worktree — a
+    // `reset --hard` here (like `sync()` does) would move the clone's HEAD out
+    // from under the repo-intel indexer, which tracks HEAD / last_indexed_sha.
+    await g.fetch(['origin', baseRef, '--depth', String(REVIEW_DIFF_FETCH_DEPTH)]);
+    // Fetch the PR head into a local ref (GitHub exposes pull/<n>/head) so
+    // `diff()` can resolve it even for a fork PR whose commits never touched
+    // the default branch, or a same-repo PR outside the shallow clone.
+    await g.fetch([
+      'origin',
+      `pull/${prNumber}/head:pr-${prNumber}`,
+      '--depth',
+      String(REVIEW_DIFF_FETCH_DEPTH),
+    ]);
   }
 
   async sync(repo: RepoRef, branch: string): Promise<{ head: string }> {

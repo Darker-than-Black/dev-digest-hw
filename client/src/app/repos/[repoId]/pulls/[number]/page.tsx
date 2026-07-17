@@ -23,6 +23,26 @@ import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
 import type { FindingRecord } from "@devdigest/shared";
 
+/** Encodes a Blast Radius file(+line) focus target into the `blastFocus`
+   query param: `<file>` or `<file>:<line>`. Repo-relative file paths never
+   contain colons, so a trailing `:<int>` is unambiguous. */
+function encodeBlastFocus(file: string, line?: number | null): string {
+  return line != null ? `${file}:${line}` : file;
+}
+
+/** Reverses `encodeBlastFocus`. Falls back to treating the whole raw value
+   as the file when there's no trailing `:<int>` — never throws on a
+   malformed/hand-edited param. */
+function decodeBlastFocus(raw: string | null): { file: string; line: number | null } | null {
+  if (!raw) return null;
+  const i = raw.lastIndexOf(":");
+  if (i === -1) return { file: raw, line: null };
+  const linePart = raw.slice(i + 1);
+  const line = Number(linePart);
+  if (!Number.isInteger(line) || String(line) !== linePart) return { file: raw, line: null };
+  return { file: raw.slice(0, i), line };
+}
+
 export default function PRDetailPage() {
   const params = useParams<{ repoId: string; number: string }>();
   const search = useSearchParams();
@@ -60,6 +80,7 @@ export default function PRDetailPage() {
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
   const focusFindingId = search.get("finding");
+  const blastFocus = decodeBlastFocus(search.get("blastFocus"));
   // Set one or more query params in a single navigation (setParam below chains
   // to this) — needed for the finding<->diff cross-tab links, which must set
   // `tab` and `finding` together: two sequential setParam calls would race
@@ -70,7 +91,15 @@ export default function PRDetailPage() {
       if (val == null) sp.delete(key);
       else sp.set(key, val);
     }
-    router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
+    // `scroll: false` — this is a tab switch within ONE page, not a real page
+    // navigation. Next's default `router.replace` scroll-to-top behavior was
+    // fighting the finding/blast cross-tab focus scroll below: it re-asserts
+    // itself on the transition and can win the race against the deferred
+    // `scrollIntoView` in SmartDiffFileCard, landing back at the top of the
+    // tab instead of at the focused file/line.
+    router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`, {
+      scroll: false,
+    });
   };
   const setParam = (key: string, val: string | null) => setParams({ [key]: val });
   const setTab = (t: string) => setParam("tab", t);
@@ -80,6 +109,11 @@ export default function PRDetailPage() {
   // meaning depends on `tab` (see DiffTab/FindingsTab for how each consumes it).
   const openFindingInDiff = (f: FindingRecord) => setParams({ tab: "diff", finding: f.id });
   const openFindingInFindings = (findingId: string) => setParams({ tab: "findings", finding: findingId });
+  // Blast Radius (Overview tab) caller/symbol/endpoint click → Files-changed
+  // tab, focused on that file(+line) — same cross-tab shape as the finding
+  // links above, its own param so the two never collide.
+  const openBlastFocusInDiff = (file: string, line?: number | null) =>
+    setParams({ tab: "diff", blastFocus: encodeBlastFocus(file, line) });
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -148,7 +182,16 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} prId={prId} />}
+        {tab === "overview" && (
+          <OverviewTab
+            prBody={pr.body}
+            prId={prId}
+            repoFullName={repoFullName}
+            headSha={pr.head_sha}
+            diffFiles={pr.files.map((f) => f.path)}
+            onFocusFile={openBlastFocusInDiff}
+          />
+        )}
 
         {tab === "findings" && (
           <FindingsTab
@@ -184,6 +227,7 @@ export default function PRDetailPage() {
             files={pr.files}
             canComment={pr.status === "open"}
             focusFindingId={focusFindingId}
+            blastFocus={blastFocus}
             onOpenFinding={openFindingInFindings}
           />
         )}
