@@ -1,4 +1,4 @@
-import type { FeatureModelId } from '@devdigest/shared';
+import type { BlastIndexBadge, FeatureModelId } from '@devdigest/shared';
 
 /**
  * Blast layer constants. The optional `?explain=true` paragraph resolves its
@@ -21,3 +21,19 @@ export const EXPLAIN_MAX_TOKENS = 300;
  * to avoid a cross-module import.
  */
 export const MAX_CALLERS_PER_SYMBOL = 20;
+
+/** How many "prior PRs touching these files" rows to surface, newest first. */
+export const PRIOR_PULLS_LIMIT = 5;
+
+/**
+ * Badge statuses `?explain=true` is allowed to run on. `degraded` (stale
+ * index / ripgrep fallback / safety-cap hit) and `partial` (some changed
+ * files missing from the index) still have REAL impact data worth
+ * summarizing — only `unavailable` (no data source at all) has nothing to
+ * explain. Excluded from this set on purpose, not merely omitted.
+ */
+export const EXPLAINABLE_STATUSES: ReadonlySet<BlastIndexBadge['status']> = new Set([
+  'full',
+  'degraded',
+  'partial',
+]);

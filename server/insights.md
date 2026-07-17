@@ -137,6 +137,19 @@ entry count and total decompressed bytes (zip-bomb). For "text-only, never execu
 enumerate executable/binary entries into an `ignored_files` list and simply never read them —
 extraction = reading selected text entries, nothing runs. See `modules/skills/import.ts`.
 
+### Blast Radius: an endpoint found only via file-attribution (`factsByFile`) has no BFS depth — pick a fixed best-effort depth, don't fabricate precision
+`modules/blast/helpers.ts` merges two endpoint-discovery sources: `getReachableEndpointRefs` (a real
+BFS with a true hop-depth) and the facade's `factsByFile` (endpoints found via the 1-hop
+symbol-reference caller graph, which has no depth concept at all). Rule: BFS-sourced depth always
+wins when both cover the same endpoint (`min`); a `factsByFile`-only endpoint gets a fixed depth of
+`1` (a caller of a changed symbol is one hop away) rather than `0` — reserve `0` for "the endpoint's
+file IS a changed file," which only the BFS (seeded with the changed files themselves) can assert.
+Endpoints with NEITHER source (the fully-degraded/ripgrep path, which never had per-file attribution
+even before this change) are dropped from the structured `BlastEndpointRef[]` list rather than
+fabricated with an empty/guessed `location` — that path already renders with a degraded/unavailable
+badge, so losing those entries from the structured list doesn't hide anything the badge doesn't
+already flag. See `mapToBlastResponse`'s endpoint-location merge block.
+
 ### Hunk-header extraction: regex `@@ ... @@` off raw `patch`, never `parseUnifiedDiff`
 `parseUnifiedDiff` keeps only the four numeric fields off a `@@` line and **drops** the trailing
 function-context text (`@@ -12,3 +12,4 @@ function foo() {`). Any feature that wants hunk
@@ -152,14 +165,28 @@ them (risk grouping, split suggestion) — zero model calls, zero writes. When a
 a view from data another feature already persisted," reach for this shape (`service.ts` = DB
 reads only, `helpers.ts` = pure compose) instead of defaulting to the LLM-call or CRUD templates.
 
-### Pure helper modules take local structural interfaces, not Drizzle row imports — now 2-for-2
-`modules/intent/helpers.ts` (`PrFileHeaders`) and `modules/smart-diff/helpers.ts`
-(`SmartDiffInputFile`/`SmartDiffInputFinding`) both declare a narrow local interface for "the
-subset of a `pr_files`/`findings` row this module needs" instead of importing the Drizzle row
-type. This keeps the helpers file DB-free and independently testable with plain object literals
-(see both modules' `helpers.test.ts`). Confirmed twice now — treat as the standard shape for any
-new pure-compose helpers file that consumes DB-shaped data: declare the local interface, map the
-real row into it at the service boundary, never import the Drizzle type into `helpers.ts`.
+### Dedup a JOIN-produced list of parent rows with `selectDistinct`, not `selectDistinctOn`
+`getPriorPullsForFiles` (`modules/reviews/repository/pull.repo.ts`) joins `pull_requests` ⋈ `pr_files`
+to find PRs touching ANY of a set of paths — a PR with multiple matching files produces multiple
+join rows. Since every selected column is already PR-level (no `pr_files` column in the select
+list), plain `db.selectDistinct({...})` collapses the duplicates correctly — no need for Postgres's
+fussier `DISTINCT ON` (which requires the leading `ORDER BY` expressions to match the `DISTINCT ON`
+list). Include the row's own PK in the select even if the caller doesn't need it (here: `pull_requests.id`,
+unused by the `PriorPull` contract) so `DISTINCT` dedupes by true identity, not by display columns
+that could theoretically collide (e.g. PR `number` is only unique per-repo, not workspace-wide).
+
+### Pure helper modules take local structural interfaces, not Drizzle row imports — now 3-for-3
+`modules/intent/helpers.ts` (`PrFileHeaders`), `modules/smart-diff/helpers.ts`
+(`SmartDiffInputFile`/`SmartDiffInputFinding`), and `modules/blast/helpers.ts` (`PriorPullSourceRow`,
+2026-07-17) all declare a narrow local interface for "the subset of a `pr_files`/`findings`/
+`pull_requests` row this module needs" instead of importing the Drizzle row type (or even the
+owning module's `repository/*.repo.ts` row type — blast's `PriorPullSourceRow` deliberately doesn't
+import `reviews/repository/pull.repo.ts`'s `PriorPullRow`, even though it's structurally the exact
+same shape plus an `id` field). This keeps the helpers file DB-free and independently testable with
+plain object literals (see each module's `helpers.test.ts`). Confirmed three times now — treat as
+the standard shape for any new pure-compose helpers file that consumes DB-shaped data: declare the
+local interface, map the real row into it at the service boundary, never import the Drizzle (or
+repository) row type into `helpers.ts`.
 
 ### Test the workspace-scope gate ORDER, not just its outcome — call-order flags in the fake repo
 `modules/smart-diff/service.test.ts`'s 404 test doesn't just assert `getSmartDiff` throws for an
@@ -276,6 +303,71 @@ this fix is what makes `run_agent_on_pr` produce a real review for a fork/fresh 
 server's before this change (missing several other fields too) — **not** updated here (out of
 front-end scope; it has no `git` consumer since git access is server-only), flagged for whoever
 next reconciles the vendored copies.
+
+### 2026-07-17 — Blast Radius fixes: line-level change detection, unavailable status, true per-symbol caller totals, structured endpoint objects
+Server side of a 4-tier fix to `modules/blast/`. New `modules/blast/diff.ts` (pure): `parseChangedLines`
+(hunk-header regex → new-side line ranges, extends the existing "regex off raw patch" pattern above)
++ `detectFileChange` (best-effort deleted/renamed sniff — `pr_files` has no `status`/`previous_path`
+column). `blast/service.ts` now parallelizes 5 facade reads, intersects each changed file's symbol
+line-ranges against its patch hunks to decide `line-level` vs `file-level` `change_detection_mode`
+(fixes the old "20 symbols when 1 changed" bug), and owns a `computeIndexStatus` that maps to
+`unavailable`/`degraded`/`partial`/`full` (see the repo-intel insight above on why `reason` alone
+can't detect true unavailability). `blast/helpers.ts`'s `mapToBlastResponse` now takes an options
+object and emits `callers_total`/`callers_truncated`/`relation` per caller and `BlastEndpointRef`
+objects (method/path/location/source_symbols/depth) instead of flat strings — `counts.callers` is
+now deduped by `relation|file|line|symbol` across the whole result, not summed per-symbol.
+repo-intel side (additive only — see that module's insights.md): removed `tryPersistentBlast`'s
+global 20-cap, added `getReachableEndpointRefs` (min-depth BFS). Contract (`blast.ts`) was already
+extended by another agent before this work started. Client (`BlastTab/*`) done in parallel by a
+different agent. Tests: `blast/diff.test.ts`, `blast/helpers.test.ts` (rewritten), `blast/
+service.test.ts` (new — status-mapping), `repo-intel-facade-degraded.test.ts` (extended).
+
+Follow-up same day: `prior_pulls` (a `BlastResponse` field the contract already had, but no query
+backed it yet). New `reviews/repository/pull.repo.ts:getPriorPullsForFiles` (workspace-scoped,
+excludes the current PR, `pull_requests` ⋈ `pr_files` on path overlap, `selectDistinct`-deduped,
+newest first — see the dedup insight above) plus `blast/helpers.ts:mapPriorPull` (pure row→contract,
+builds the `github.com/.../pull/N` URL the same way the client's `githubPrUrl` does). Also verified/
+locked `counts.endpoints === endpoints.length` with an explicit test (it was already tautologically
+true from the 07-17 rewrite above, but wasn't asserted anywhere).
+
+**Round-2 correction (same day):** the first pass only scoped `getPriorPullsForFiles` by
+`workspaceId` — team lead caught it should ALSO scope by `repoId` (a workspace with two GitHub repos
+sharing a relative path, e.g. two Node services both with `src/index.ts`, would otherwise surface
+the wrong repo's PRs as "prior PRs touching this file"). Added `eq(pullRequests.repoId, repoId)`
+to the `WHERE`. Also: Postgres's DEFAULT null-ordering for `ORDER BY x DESC` is **`NULLS FIRST`**,
+not last — a plain `desc(openedAt)` would float never-opened rows to the very top of "newest first."
+Needed an explicit `sql\`${col} DESC NULLS LAST\`` (drizzle's `desc()`/`asc()` helpers have no
+`.nullsLast()` chain in this drizzle-orm version — a raw `sql` fragment mixed into `.orderBy(...)`
+is the way, and it's allowed to sit alongside plain column args in the same call).
+
+Round-3: added the DB-backed `test/pull-repo-prior-pulls.it.test.ts` (workspace + repo isolation is
+security-relevant enough to verify against real Postgres, not just fake-repo call-args). Confirms
+(a) another workspace's overlapping PR is excluded, (b) a sibling repo in the SAME workspace is
+excluded, (c) the current PR is excluded, (d) a PR matching on 2 files dedups to 1 row, (e) the
+`NULLS LAST` fix above actually holds against real Postgres (seeded a null-`opened_at` row, asserted
+it sorts strictly last). `startPg()` (`test/helpers/pg.ts`) already runs migrations before the test
+body executes — no separate `pnpm db:migrate` step needed in a testcontainers-backed `*.it.test.ts`.
+
+### 2026-07-17 — Blast: read-time junk-file filter for endpoints/crons + widened explain gate
+Two more blast fixes, same day. (1) `file_facts` (endpoints/crons) is indexed off EVERY parsed file
+— a test/mock/fixture file that literally contains something `extractEndpoints`'s regex matches
+(e.g. a supertest fixture calling `app.get('/foo', ...)` to mock a route) indexes as a "real"
+endpoint with no way to tell it apart downstream. Rather than touch the indexer (repo-intel is
+starter infra — additive only, see [repo-intel/insights.md](src/modules/repo-intel/insights.md)),
+`blast/helpers.ts` now filters `factsByFile` KEYS and `endpointRefs[].file` through `isJunkPath`
+(same list `getTopFilesByRank` already used) BEFORE any location/dedup/attribution logic runs — a
+read-time filter, so noisy `file_facts` rows stay persisted, just never surfaced from this one
+endpoint. Moved `JUNK_PATH_PATTERNS`/`isJunkPath` from a private helper at the bottom of
+`repo-intel/service.ts` to `repo-intel/constants.ts` (exported) so blast could reuse the SAME
+definition rather than duplicating it — same "reuse repo-intel constants directly" pattern as
+`SUPPORTED_EXT` (see the repo-intel insight above). (2) `?explain=true` used to gate on `index.status
+=== 'full'` only; widened to `EXPLAINABLE_STATUSES = {full, degraded, partial}` (new blast/
+constants.ts export) — a stale or file-rank-partial index still has REAL impact data worth a
+paragraph, only `unavailable` (no data source at all) has nothing to summarize. Testing the gate
+required `vi.mock('../settings/feature-models.js')` (the fake container alone can't stand in for
+`resolveFeatureModel`, which reads real settings) + a `llm: async () => ({ complete: ... })` stub
+added to the shared `makeContainer` fake in `blast/service.test.ts` — first hermetic test in this
+module to exercise `explain: true` at all.
 
 ## Open Questions
 

@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import messages from "../../../../../../../../messages/en/shell.json";
 import type { PrFile } from "@devdigest/shared";
@@ -23,12 +23,24 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderWithIntl(ui: React.ReactElement) {
-  return render(
+const scrollIntoViewSpy = vi.fn();
+
+beforeAll(() => {
+  // jsdom doesn't implement scrollIntoView — a spy (not a bare no-op) so
+  // tests can assert it was actually invoked on the right element.
+  Element.prototype.scrollIntoView = scrollIntoViewSpy;
+});
+
+function wrap(ui: React.ReactElement) {
+  return (
     <NextIntlClientProvider locale="en" messages={{ shell: messages }}>
       {ui}
-    </NextIntlClientProvider>,
+    </NextIntlClientProvider>
   );
+}
+
+function renderWithIntl(ui: React.ReactElement) {
+  return render(wrap(ui));
 }
 
 const files: PrFile[] = [
@@ -87,5 +99,68 @@ describe("DiffTab", () => {
     expect(screen.queryByText("Core logic")).not.toBeInTheDocument();
     expect(screen.getByText("server/src/service.ts")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Smart order" })).toBeDisabled();
+  });
+
+  it("blastFocus (a Blast Radius caller/symbol/endpoint click) forces Smart order and opens/flashes the target file's card", async () => {
+    stubCommonHooks();
+    useSmartDiff.mockReturnValue({ data: smartDiffData, isLoading: false, isError: false });
+
+    renderWithIntl(
+      <DiffTab
+        prId="pr-1"
+        filesCount={1}
+        files={files}
+        blastFocus={{ file: "server/src/service.ts", line: null }}
+      />,
+    );
+
+    const card = document.querySelector('[data-file-card="server/src/service.ts"]');
+    await waitFor(() => {
+      expect(card).toHaveClass("dd-finding-flash");
+    });
+    // The actual scroll call, not just the flash class — a line-null
+    // (symbol/endpoint) blastFocus scrolls the FILE CARD itself into view.
+    expect(scrollIntoViewSpy).toHaveBeenCalled();
+    expect(scrollIntoViewSpy.mock.instances[0]).toBe(card);
+  });
+
+  it("still flashes the target file's card when the smart-diff query resolves LATE (the file card doesn't exist at the moment blastFocus first arrives)", async () => {
+    stubCommonHooks();
+    // Still loading when DiffTab first mounts with blastFocus — the flat
+    // DiffViewer renders (no SmartDiffFileCard, no anchors at all yet).
+    useSmartDiff.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+
+    const { rerender } = renderWithIntl(
+      <DiffTab
+        prId="pr-1"
+        filesCount={1}
+        files={files}
+        blastFocus={{ file: "server/src/service.ts", line: null }}
+      />,
+    );
+    expect(document.querySelector('[data-file-card="server/src/service.ts"]')).toBeNull();
+
+    // The query resolves after DiffTab's own focus effect already ran (and
+    // gave up on a single fixed-delay attempt, pre-fix) — the target file's
+    // card only exists in the DOM from this point on.
+    useSmartDiff.mockReturnValue({ data: smartDiffData, isLoading: false, isError: false });
+    rerender(
+      wrap(
+        <DiffTab
+          prId="pr-1"
+          filesCount={1}
+          files={files}
+          blastFocus={{ file: "server/src/service.ts", line: null }}
+        />,
+      ),
+    );
+
+    await waitFor(
+      () => {
+        const card = document.querySelector('[data-file-card="server/src/service.ts"]');
+        expect(card).toHaveClass("dd-finding-flash");
+      },
+      { timeout: 3000 },
+    );
   });
 });

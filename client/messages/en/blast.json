@@ -11,27 +11,55 @@
     "graph": "graph"
   },
   "callerCount": "{count} callers",
+  "callersTruncated": "Showing {shown} of {total} callers",
+  "symbolEndpointCount": "{count} endpoints",
+  "symbolCronCount": "{count} crons",
   "expand": "Expand callers",
   "collapse": "Collapse callers",
+  "expandAllLabel": "Expand all",
   "noDownstream": "{count} changed symbol(s), no downstream callers found.",
+  "fileLevelNotice": "Impact is calculated at file level because symbol line ranges are unavailable.",
   "graph": {
-    "empty": "No downstream callers to graph.",
-    "ariaLabel": "Blast radius graph"
+    "ariaLabel": "Blast radius graph",
+    "truncated": "Showing a partial graph — too many relationships to render at once.",
+    "legend": {
+      "changed": "changed symbol",
+      "callers": "callers",
+      "endpoints": "endpoints affected"
+    }
+  },
+  "affectedEndpoints": {
+    "title": "Affected endpoints ({count})"
+  },
+  "priorPulls": {
+    "title": "Prior PRs touching these files {count}",
+    "meta": "{author} · {date}"
   },
   "index": {
     "status": {
       "full": "Indexed",
       "partial": "Partially indexed",
       "degraded": "Degraded index",
-      "failed": "Index failed"
+      "failed": "Index failed",
+      "unavailable": "Index unavailable"
     },
     "reasonFallback": "The repo index isn't fully built yet — results may be incomplete.",
-    "filesSummary": "{indexed} indexed · {skipped} skipped"
+    "filesSummary": "{indexed} indexed · {skipped} skipped",
+    "unavailableBody": "Blast Radius is unavailable — the repository index has not been generated or could not be read."
   },
   "section": {
     "callers": "Callers",
     "endpoints": "Endpoints",
     "crons": "Cron / jobs"
+  },
+  "relation": {
+    "calls": "Calls",
+    "imports": "Imports",
+    "references": "References"
+  },
+  "endpoint": {
+    "aria": "Open {method} {path} on GitHub",
+    "ariaFocus": "Open {method} {path} in Files changed"
   },
   "noCallers": "No downstream callers for this symbol.",
   "unavailable": "Blast radius couldn't be loaded.",
@@ -39,6 +67,7 @@
   "explain": {
     "action": "Explain",
     "loading": "Explaining…",
-    "title": "AI summary"
+    "title": "AI summary",
+    "unavailable": "Couldn't generate a summary for this PR."
   }
 }

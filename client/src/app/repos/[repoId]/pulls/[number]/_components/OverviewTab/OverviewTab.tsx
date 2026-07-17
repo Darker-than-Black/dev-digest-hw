@@ -12,10 +12,22 @@ interface OverviewTabProps {
   prId: string | null;
   repoFullName: string | null;
   headSha: string;
-  onViewDiff?: () => void;
+  /** The PR's changed file paths — Blast Radius uses this to tell an in-diff
+     caller/symbol/endpoint (in-app scroll via `onFocusFile`) from an
+     off-diff one (GitHub link fallback instead). */
+  diffFiles: string[];
+  /** Jump to the Files-changed tab, focused on a file(+line when known). */
+  onFocusFile?: (file: string, line?: number | null) => void;
 }
 
-export function OverviewTab({ prBody, prId, repoFullName, headSha, onViewDiff }: OverviewTabProps) {
+export function OverviewTab({
+  prBody,
+  prId,
+  repoFullName,
+  headSha,
+  diffFiles,
+  onFocusFile,
+}: OverviewTabProps) {
   const t = useTranslations("prReview");
   return (
     <>
@@ -25,7 +37,8 @@ export function OverviewTab({ prBody, prId, repoFullName, headSha, onViewDiff }:
           prId={prId}
           repoFullName={repoFullName}
           headSha={headSha}
-          onViewDiff={onViewDiff}
+          diffFiles={diffFiles}
+          onFocusFile={onFocusFile}
         />
       </div>
 

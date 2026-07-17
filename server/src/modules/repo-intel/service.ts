@@ -33,6 +33,7 @@ import type {
   BlastCallerRow,
   BlastChangedSymbol,
   BlastResult,
+  EndpointRefRow,
   FileRankRow,
   IndexResult,
   IndexState,
@@ -45,8 +46,11 @@ import type {
 import {
   BFS_DEPTH,
   DEFAULT_REPO_MAP_TOKEN_BUDGET,
+  ENDPOINT_REACHABILITY_NODE_CAP,
   INDEX_JOB_KIND,
   INDEXER_VERSION,
+  isJunkPath,
+  MAX_CALLERS_GLOBAL_SAFETY_CAP,
   MAX_CALLERS_PER_SYMBOL,
   REFRESH_JOB_KIND,
   RESYNC_JOB_KIND,
@@ -381,12 +385,21 @@ export class RepoIntelService implements RepoIntel {
       for (const e of f.endpoints) endpoints.add(e);
     }
 
+    // Global SAFETY cap only (not a per-symbol cap — that's `blast/`'s job now
+    // that it has the true per-symbol totals). Callers are already rank-sorted
+    // DESC above, so a cap here still keeps the highest-ranked callers
+    // overall. Flagged via `degraded`/`reason` so `blast/` can surface it as
+    // `partial` rather than silently truncating.
+    const capped = callers.length > MAX_CALLERS_GLOBAL_SAFETY_CAP;
+    const cappedCallers = capped ? callers.slice(0, MAX_CALLERS_GLOBAL_SAFETY_CAP) : callers;
+
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
+      callers: cappedCallers,
       impactedEndpoints: [...endpoints],
       factsByFile,
-      degraded: false,
+      degraded: capped,
+      reason: capped ? 'callers_capped' : undefined,
     };
   }
 
@@ -786,37 +799,83 @@ export class RepoIntelService implements RepoIntel {
     for (const f of facts) for (const e of f.endpoints) endpoints.add(e);
     return [...endpoints];
   }
+
+  /**
+   * Same reverse BFS as `getReachableEndpoints`, but instead of a flat
+   * deduped endpoint list it records, per endpoint, the MIN hop-depth it was
+   * reached at and the file that reached it (fuel for blast's per-endpoint
+   * `source_symbols`/`depth`). `getReachableEndpoints` is left untouched for
+   * its existing consumers — this is a pure addition.
+   *
+   * Bounded by `ENDPOINT_REACHABILITY_NODE_CAP` total files visited; on a
+   * pathological/highly-connected graph the walk simply stops expanding and
+   * returns whatever it found so far (never throws, no infinite loop risk —
+   * `depthByFile` already guards re-visits the same way `reached` does above).
+   */
+  async getReachableEndpointRefs(
+    repoId: string,
+    changedFiles: string[],
+    depth: number = BFS_DEPTH,
+  ): Promise<EndpointRefRow[]> {
+    if (!this.container.config.repoIntelEnabled) return [];
+    if (changedFiles.length === 0) return [];
+    const edges = await this.repo.getEdges(repoId);
+    if (edges.length === 0) return [];
+
+    // Reverse adjacency: imported file → its importers (dependents).
+    const dependents = new Map<string, string[]>();
+    for (const e of edges) {
+      const arr = dependents.get(e.toFile);
+      if (arr) arr.push(e.fromFile);
+      else dependents.set(e.toFile, [e.fromFile]);
+    }
+
+    // BFS `depth` hops, recording the hop each file was FIRST reached at.
+    // Changed files themselves are hop 0 — a route declared in a changed file
+    // is trivially reachable at depth 0.
+    const depthByFile = new Map<string, number>(changedFiles.map((f) => [f, 0]));
+    let frontier = [...changedFiles];
+    let visited = depthByFile.size;
+    for (let hop = 0; hop < depth && visited < ENDPOINT_REACHABILITY_NODE_CAP; hop += 1) {
+      const next: string[] = [];
+      for (const file of frontier) {
+        for (const dep of dependents.get(file) ?? []) {
+          if (depthByFile.has(dep)) continue;
+          if (visited >= ENDPOINT_REACHABILITY_NODE_CAP) break;
+          depthByFile.set(dep, hop + 1);
+          next.push(dep);
+          visited += 1;
+        }
+        if (visited >= ENDPOINT_REACHABILITY_NODE_CAP) break;
+      }
+      if (next.length === 0) break;
+      frontier = next;
+    }
+
+    const facts = await this.repo.getFileFacts(repoId, [...depthByFile.keys()]);
+    const factsByFile = new Map(facts.map((f) => [f.filePath, f]));
+
+    // Ascending-depth order so the first assignment per endpoint string is
+    // its minimum hop distance (BFS invariant: `depthByFile` only grows with
+    // hop number).
+    const filesByDepth = [...depthByFile.entries()].sort((a, b) => a[1] - b[1]);
+    const out: EndpointRefRow[] = [];
+    const seen = new Set<string>();
+    for (const [file, fileDepth] of filesByDepth) {
+      const fact = factsByFile.get(file);
+      if (!fact) continue;
+      for (const endpoint of fact.endpoints) {
+        if (seen.has(endpoint)) continue;
+        seen.add(endpoint);
+        out.push({ endpoint, file, depth: fileDepth });
+      }
+    }
+    return out;
+  }
 }
 
 /** How many top-ranked files seed `getCriticalPaths` dependency chains. */
 const CRITICAL_PATH_ROOTS = 5;
-
-/**
- * Path kinds excluded from rank-driven file samples (conventions/onboarding):
- * tests, configs, declaration files, migrations, generated dirs. Substring
- * match on the repo-relative path (kept deliberately simple + deterministic).
- */
-const JUNK_PATH_PATTERNS = [
-  '.test.',
-  '.spec.',
-  '.d.ts',
-  '__tests__/',
-  '__mocks__/',
-  '/test/',
-  '/tests/',
-  '/migrations/',
-  '/__fixtures__/',
-  '.config.',
-  'vitest.',
-  'jest.',
-  'eslint',
-  'prettier',
-] as const;
-
-function isJunkPath(path: string): boolean {
-  const lower = path.toLowerCase();
-  return JUNK_PATH_PATTERNS.some((p) => lower.includes(p));
-}
 
 /** Enclosing top-level (bare-name) symbol for a line, from persistent rows. */
 function enclosingFromRows(rows: FullSymbolRow[], line: number): string | null {

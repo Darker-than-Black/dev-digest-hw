@@ -200,6 +200,128 @@ in `SectionLabel`'s `right` slot) between the existing unified `DiffViewer` and 
 Chip.tsx` got a `disabled` prop — same "extend the vendored primitive in place" pattern as
 `IconBtn.tsx`'s `disabled`/`loading` (see above), not a new lesson. Server → [../server/insights.md](../server/insights.md).
 
+### 2026-07-17 — Blast Radius fixes: unavailable state, file-level notice, disabled Graph, callers_total/relation, endpoint objects
+`BlastTab/` updated for the extended `blast.ts` contract (server-side fixes: see
+[../server/insights.md](../server/insights.md)). `status: 'unavailable'` now short-circuits to its
+own return (title from `IndexBadge`'s new status label + a body message) BEFORE the stat row is
+built, matching the existing `!data` early-return shape one level up — the spec is explicit that a
+missing index must never render "0 symbols/callers/endpoints" (reads as "nothing breaks"). Since
+Graph was already dead UI (no graph impl, an inert placeholder `div`), removing the `view` state
+entirely (not just disabling the chip) followed from `react-best-practices`: once Graph is
+permanently `disabled` there is no second state to toggle to, so keeping `useState<ViewMode>` would
+be unused state carried for a UI affordance that no longer does anything — `Chip active` (tree,
+static) + `Chip disabled` (graph) replaces it. `SymbolRow` first-only-expand takes an `index` prop
+from the `impacts.map` call, not a symbol-count heuristic — matches the "container passes position,
+leaf renders" shape already used elsewhere (e.g. `PRRow`). `FactChips` grew `repoFullName`/`headSha`
+props (threaded from `SymbolRow`) purely to build the endpoint's `githubBlobUrl` — endpoints have no
+line (index isn't line-precise for them), so the link omits it, unlike caller links.
+
+### 2026-07-17 — Blast Radius round 2: Mermaid graph, Prior PRs, stat-chip sort, expand-all, endpoint-count fix
+Re-enabled the Graph chip removed above — it's a real `flowchart LR` now (`mermaid.ts`, pure/
+hermetic: symbol/caller/endpoint node ids hashed from a stable key so a caller reached from two
+changed symbols still dedupes to one node; labels quoted+escaped since raw `rateLimit()` /
+`/api/public/x` break mermaid's unquoted node syntax) rendered via the existing
+`components/mermaid-diagram/MermaidDiagram` — reused as-is, no changes needed to it. Capped at 6
+symbols/5 callers/4 endpoints (skill guidance: ~20 nodes) with a `truncated` flag surfaced as a
+hint. Three new pure/testable modules colocated in `BlastTab/`: `sort.ts` (stat-chip click-to-sort;
+`Array.prototype.sort` is stable since ES2019 so no explicit tie-break needed; default order sinks
+`callers_total===0` symbols to the end without an explicit sort), `mermaid.ts` (chart builder),
+plus `EndpointChip.tsx` extracted out of `FactChips` on its 2nd consumer (`AffectedEndpoints`, the
+full flat `data.endpoints` list — added because some BFS-reached endpoints aren't attributable to
+any single symbol, so per-symbol chips alone silently undercounted `counts.endpoints`). Expand/
+collapse-all reuses the exact "openNonce" pattern from `ReviewRunAccordion` (already documented
+above under "Navigate-to-finding") applied to a NEW case — a header control snapping every row's
+local state via a bumped nonce, not lifting the state itself: `SymbolRow` keeps owning its own
+`expanded` `useState`, and only resyncs it in a `useEffect` keyed on `expandSignal.nonce` changing,
+so the row stays freely toggleable afterward. Stat chips became sort buttons — replaced with a
+custom `StatChips.tsx` (plain `<button>`, not the `Badge` primitive) rather than adding `onClick` to
+`Badge`, since `Badge` is shared broadly (severity pills etc.) and the mock wanted a visually
+lighter treatment specific to this row, not a generic Badge behavior change.
+
+The user's target mock was 4 pasted screenshots (not a repo file — no point grepping for one next
+time a "match this mock" task has no findable spec doc). Two corrections made after the initial
+pass, once the mock was described precisely: (1) the stat row's `symbols`/`callers` icons are
+specifically `<>` (`Icon.Code`) and `↳` (`Icon.CornerDownRight`), not the generic `Layers`/`Users` —
+don't assume a "close enough" icon satisfies mock parity when exact glyphs are called out. (2) the
+graph's 3-column layout (symbol | callers | endpoints) requires endpoint nodes to hang off the
+CALLER nodes, not the changed-symbol node directly — `mermaid.ts`'s `buildBlastGraph` originally
+connected symbol→caller AND symbol→endpoint as two separate depth-1 fans, which mermaid's `dagre`
+layout would draw as two nodes in the SAME column instead of three staggered columns. Fixed by
+fanning every capped caller → every capped endpoint (with a `symbol→endpoint` fallback edge only
+when a symbol has endpoints but zero callers survived the cap), even though the contract itself
+only records symbol→endpoint reachability (`source_symbols`), not per-caller attribution — a
+readable diagram over a literally-precise one, flagged as an approximation in the file comment.
+
+### 2026-07-17 — Blast Radius round 3: mermaid classDef bug, Explain gate, path overflow, diff-nav
+Live testing surfaced a real mermaid bug: `classDef`'s style list is COMMA-separated, and
+`fill:var(--accent-bg,#2b3a67)`/`color-mix(in srgb,...)` values smuggle in their OWN internal
+commas — the graph silently failed to parse and never rendered. Fixed by switching `mermaid.ts`'s
+`CLASS_DEFS` to plain hex (no `var()`/functions at all) — moot anyway since `MermaidDiagram` always
+initializes mermaid's own `dark` theme regardless of the app's light/dark setting, so a CSS custom
+property wasn't even the right tool here. New `mermaid.test.ts` case asserts each `classDef` line
+splits into exactly 3 `key:#hex` declarations, specifically to catch this class of regression.
+Explain (`BlastTab.tsx`) had two bugs, not one: `IconBtn` renders icon-only (aria-label/title, no
+VISIBLE text) so a first-time user had no way to know the sparkle icon meant "Explain" — swapped
+for `Button kind="ghost" size="sm"` (same pattern as `DiffTab`'s "Show/Hide comments"). Separately,
+`explainDisabled` still gated on `index.degraded` after the backend lifted that restriction (server
+round 3 — see server insights) — since most starter-DB repos hit the degraded path (repo-intel
+AGENTS.md), the button was disabled for nearly every real PR, so "the result never shows" was really
+just "the button was never clickable to begin with."
+
+Diff-nav (caller/symbol/endpoint click → Files-changed tab + scroll) reuses the EXACT
+`focusFindingId`/`focusTarget` machinery `DiffTab`/`SmartDiffViewer`/`SmartDiffGroupSection`/
+`SmartDiffFileCard` already have for finding↔diff cross-tab links — no new mechanism. The only
+change: `focusTarget.line` widened to `number | null` (`SmartDiffFileCard` now falls back to a new
+`data-file-card={path}` anchor — added to the card's own root div — when `line` is null) because
+Blast Radius often has no line to give: a changed symbol's own contract (`ChangedSymbol`) carries no
+line field, and an endpoint's `location.line` is always null (the repo index isn't line-precise for
+endpoints). New `blastFocus` query param (`page.tsx`, own `encodeBlastFocus`/`decodeBlastFocus`
+pair, colocated — single consumer, not worth a shared module) mirrors the existing `finding` param's
+shape exactly, just carrying `file[:line]` directly instead of an id to look up (no lookup step
+needed — Blast already has the file+line). Off-diff fallback: `BlastTab` now takes a `diffFiles`
+prop (`pr.files.map(f => f.path)`, threaded from `page.tsx`) — a caller/endpoint whose file ISN'T in
+that set keeps the pre-round-3 GitHub-link behavior (most callers live outside the diff by
+definition); only an in-diff target gets the new in-app `onFocusFile` wiring. `MonoLink` (vendored)
+gained an optional `style` prop (same "extend the primitive in place" pattern as `Chip`/`IconBtn`
+above) — needed to fix the caller-path overflow bug too: a flex item's default `min-width` is `auto`
+(its own content width), so a long `file:line` pushed the row wider than the card instead of
+wrapping; `minWidth: 0` + `overflowWrap: anywhere` on the caller's `MonoLink` fixes it. This one has
+no test — it's a pure CSS layout fix with nothing to assert in jsdom (no real layout engine).
+
+### 2026-07-17 — Blast Radius round 4: empty graph nodes, nav-scroll robustness, Explain feedback
+Three more live-testing bugs. (1) `buildBlastGraph` (`mermaid.ts`) capped `impacts.slice(0,
+MAX_SYMBOLS)` BEFORE checking whether each one had anything to draw — a symbol with 0 callers AND 0
+endpoints still got declared as a floating node with no edges, and worse, could crowd OUT a
+meaningful symbol later in file-rank order once the cap was hit. Fixed by filtering
+(`callers.length>0 || endpoints.length>0`) BEFORE capping, not after — general lesson: when a list
+is both filtered AND capped, filter first, or the cap can starve out everything the filter would
+have kept. (2) Explain silently rendered nothing when `explanation` resolved to `null` (a real,
+expected outcome — the server explicitly `try/catch`es the LLM call to null rather than failing the
+whole read) — looked exactly like a broken button. Fixed: render the result section whenever
+`explain && !isFetching` (settled, not just clicked), with an explicit fallback message for the null
+case, instead of the old `explain && explanation` gate that rendered NOTHING for null.
+
+(3) File-level nav (symbol/endpoint click) reportedly still didn't scroll to the target file card,
+confirmed as a real live bug (team lead reproduced it in-browser: URL correctly set `?blastFocus=`,
+tab correctly switched, but the view stayed at the top). This agent has no browser-automation tool
+wired into its subagent context (the `claude-in-chrome` skill loads but grants no
+`mcp__claude-in-chrome__*` tools here — confirmed by trying twice), so this agent's two rounds of
+fixes here (a `scrollAndFlash` retry loop for mount-timing races, then `router.replace(url, {
+scroll: false })` in `page.tsx`'s `setParams` to stop Next's default scroll-restore from racing the
+app's own scroll) were both plausible-but-unverified guesses — neither was the actual bug.
+**CONFIRMED ROOT CAUSE** (team lead, live devtools): `scrollAndFlash` used
+`el.scrollIntoView({ behavior: "smooth", ... })`. The app's scroll container is a nested `<main
+overflow:auto>` (`AppFrame.tsx`) — a PROGRAMMATIC **smooth** scroll to a far/off-screen target
+silently no-ops on this kind of container (verified in the live DOM: `scrollIntoView` was called,
+`dd-finding-flash` was applied, but `scrollTop` never moved). Switching to `behavior: "auto"` fixed
+it immediately — jumps correctly instead of animating (and failing to animate). The retry loop and
+`data-file-card` anchor were both already correct; `smooth` was the only bug. **Lesson**: a
+programmatic `scrollIntoView({behavior:'smooth'})` to a target far outside the viewport can silently
+no-op on a NESTED scrollable container (not just `window`) — use `behavior:'auto'` for any
+programmatic (non-user-initiated) scroll-to-element in this app, especially across a large distance;
+jsdom can't catch this at all (no real layout/scroll engine), so this class of bug needs a live
+browser, not more unit tests.
+
 ## Open Questions
 
 ### No `PRRow.test.tsx` — COST column render is untested

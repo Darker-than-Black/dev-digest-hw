@@ -178,3 +178,85 @@ describe('RepoIntel facade — getReachableEndpoints (2-level import-graph walk)
     await expect(svc.getReachableEndpoints('r1', [])).resolves.toEqual([]);
   });
 });
+
+describe('RepoIntel facade — getReachableEndpointRefs (min-depth + source file, blast T4)', () => {
+  // Same fixture as getReachableEndpoints above: util.ts ← service.ts ←
+  // routes.ts ← app.ts. From changed util.ts: hop 1 = service.ts,
+  // hop 2 = routes.ts, hop 3 = app.ts.
+  const edges = [
+    { fromFile: 'service.ts', toFile: 'util.ts' },
+    { fromFile: 'routes.ts', toFile: 'service.ts' },
+    { fromFile: 'app.ts', toFile: 'routes.ts' },
+  ];
+  const facts = [
+    { filePath: 'util.ts', endpoints: ['DIRECT /util'], crons: [] },
+    { filePath: 'service.ts', endpoints: [], crons: [] },
+    { filePath: 'routes.ts', endpoints: ['GET /api'], crons: [] },
+    { filePath: 'app.ts', endpoints: ['GET /app'], crons: [] },
+  ];
+
+  function buildGraphService(edgeRows = edges, factRows = facts): RepoIntelService {
+    const container = { config: { repoIntelEnabled: true }, db: {} as never } as never;
+    const svc = new RepoIntelService(container);
+    (svc as unknown as { repo: Record<string, unknown> }).repo = {
+      getEdges: async () => edgeRows,
+      getFileFacts: async (_r: string, files: string[]) =>
+        factRows.filter((f) => files.includes(f.filePath)),
+    };
+    return svc;
+  }
+
+  it('25.7 — records min hop-depth + source file, excluding an endpoint only reachable at depth 3', async () => {
+    const svc = buildGraphService();
+    // util.ts is the changed file itself → depth 0. service.ts (hop 1) has no
+    // endpoints. routes.ts (hop 2) → 'GET /api' at depth 2. app.ts is hop 3 →
+    // 'GET /app' is NOT reachable at the default depth (BFS_DEPTH = 2).
+    await expect(svc.getReachableEndpointRefs('r1', ['util.ts'])).resolves.toEqual([
+      { endpoint: 'DIRECT /util', file: 'util.ts', depth: 0 },
+      { endpoint: 'GET /api', file: 'routes.ts', depth: 2 },
+    ]);
+  });
+
+  it('honors a custom depth — depth 3 reaches app.ts at depth 3', async () => {
+    const svc = buildGraphService();
+    await expect(svc.getReachableEndpointRefs('r1', ['util.ts'], 3)).resolves.toEqual([
+      { endpoint: 'DIRECT /util', file: 'util.ts', depth: 0 },
+      { endpoint: 'GET /api', file: 'routes.ts', depth: 2 },
+      { endpoint: 'GET /app', file: 'app.ts', depth: 3 },
+    ]);
+  });
+
+  it('25.8 — a cyclic edge does not infinite-loop; each file visited once at its first (min) depth', async () => {
+    // a.ts ← b.ts ← c.ts ← a.ts (cycle) — b.ts is also directly reachable
+    // from the changed a.ts, and c.ts loops back to a.ts.
+    const cyclicEdges = [
+      { fromFile: 'b.ts', toFile: 'a.ts' },
+      { fromFile: 'c.ts', toFile: 'b.ts' },
+      { fromFile: 'a.ts', toFile: 'c.ts' }, // cycle back to the changed file
+    ];
+    const cyclicFacts = [
+      { filePath: 'a.ts', endpoints: ['GET /a'], crons: [] },
+      { filePath: 'b.ts', endpoints: ['GET /b'], crons: [] },
+      { filePath: 'c.ts', endpoints: ['GET /c'], crons: [] },
+    ];
+    const svc = buildGraphService(cyclicEdges, cyclicFacts);
+    // Must terminate (no infinite loop) and each file appears once, at its
+    // first-reached (min) depth: a.ts=0 (changed), b.ts=1, c.ts=2.
+    await expect(svc.getReachableEndpointRefs('r1', ['a.ts'], 5)).resolves.toEqual([
+      { endpoint: 'GET /a', file: 'a.ts', depth: 0 },
+      { endpoint: 'GET /b', file: 'b.ts', depth: 1 },
+      { endpoint: 'GET /c', file: 'c.ts', depth: 2 },
+    ]);
+  });
+
+  it('empty changedFiles → [] (no walk)', async () => {
+    const svc = buildGraphService();
+    await expect(svc.getReachableEndpointRefs('r1', [])).resolves.toEqual([]);
+  });
+
+  it('repoIntelEnabled=false → [] (degraded contract)', async () => {
+    const container = { config: { repoIntelEnabled: false }, db: {} as never } as never;
+    const svc = new RepoIntelService(container);
+    await expect(svc.getReachableEndpointRefs('r1', ['util.ts'])).resolves.toEqual([]);
+  });
+});

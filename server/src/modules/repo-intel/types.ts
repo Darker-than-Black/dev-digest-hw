@@ -29,7 +29,9 @@ export type DegradedReason =
   | 'index_failed'
   | 'index_partial'
   | 'repo_too_large'
-  | 'no_data';
+  | 'no_data'
+  /** `tryPersistentBlast` hit `MAX_CALLERS_GLOBAL_SAFETY_CAP` — result is truncated. */
+  | 'callers_capped';
 
 export interface IndexResult {
   status: IndexStatus;
@@ -121,6 +123,18 @@ export interface FileRankRow {
   percentile: number;
 }
 
+/**
+ * One HTTP endpoint reachable from the changed files (`getReachableEndpointRefs`,
+ * blast T4). `depth` is the MIN import-graph hop at which a file exposing this
+ * endpoint was reached (0 = the endpoint's file is itself a changed file);
+ * `file` is that reaching file (BFS order guarantees it's the min-depth one).
+ */
+export interface EndpointRefRow {
+  endpoint: string;
+  file: string;
+  depth: number;
+}
+
 export interface RepoMapResult {
   text: string;
   tokens: number;
@@ -157,6 +171,19 @@ export interface RepoIntel {
     changedFiles: string[],
     depth?: number,
   ): Promise<string[]>;
+  /**
+   * Same reverse-BFS as `getReachableEndpoints`, but returns each endpoint
+   * with the MIN hop-depth it was reached at and the file that reached it —
+   * fuel for blast's `source_symbols`/`depth` per-endpoint attribution
+   * (blast T4). Bounded by `ENDPOINT_REACHABILITY_NODE_CAP`; degraded
+   * contract — `[]` when the flag is off, the graph is empty, or nothing is
+   * reachable (never throws).
+   */
+  getReachableEndpointRefs(
+    repoId: string,
+    changedFiles: string[],
+    depth?: number,
+  ): Promise<EndpointRefRow[]>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;
