@@ -729,6 +729,63 @@ export class RepoIntelService implements RepoIntel {
     }
     return paths;
   }
+
+  /**
+   * HTTP endpoints reachable from `changedFiles` by walking the import graph
+   * outward to DEPENDENTS up to `depth` hops (step 3 of the blast algorithm).
+   *
+   * `file_edges` is stored `from imports to`, so a dependent of file X is any
+   * edge with `to_file === X` → its `from_file`. We BFS that reverse relation
+   * `depth` times (default `BFS_DEPTH` = 2), then union the
+   * `file_facts.endpoints` of every file reached — the changed files included,
+   * since a route declared IN a changed file is trivially affected. This is
+   * broader than `getBlastRadius`'s caller-file endpoints (which walk the
+   * `references` symbol graph 1 hop); a route handler that transitively imports
+   * a changed util — without directly referencing a changed symbol — surfaces
+   * only here.
+   *
+   * Pure read over `file_edges` + `file_facts`; returns `[]` when the flag is
+   * off, the graph is empty, or nothing is reachable (never throws).
+   */
+  async getReachableEndpoints(
+    repoId: string,
+    changedFiles: string[],
+    depth: number = BFS_DEPTH,
+  ): Promise<string[]> {
+    if (!this.container.config.repoIntelEnabled) return [];
+    if (changedFiles.length === 0) return [];
+    const edges = await this.repo.getEdges(repoId);
+    if (edges.length === 0) return [];
+
+    // Reverse adjacency: imported file → its importers (dependents).
+    const dependents = new Map<string, string[]>();
+    for (const e of edges) {
+      const arr = dependents.get(e.toFile);
+      if (arr) arr.push(e.fromFile);
+      else dependents.set(e.toFile, [e.fromFile]);
+    }
+
+    // BFS `depth` hops out from the changed files over the dependents relation.
+    const reached = new Set<string>(changedFiles);
+    let frontier = [...changedFiles];
+    for (let hop = 0; hop < depth; hop += 1) {
+      const next: string[] = [];
+      for (const file of frontier) {
+        for (const dep of dependents.get(file) ?? []) {
+          if (reached.has(dep)) continue;
+          reached.add(dep);
+          next.push(dep);
+        }
+      }
+      if (next.length === 0) break;
+      frontier = next;
+    }
+
+    const facts = await this.repo.getFileFacts(repoId, [...reached]);
+    const endpoints = new Set<string>();
+    for (const f of facts) for (const e of f.endpoints) endpoints.add(e);
+    return [...endpoints];
+  }
 }
 
 /** How many top-ranked files seed `getCriticalPaths` dependency chains. */

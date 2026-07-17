@@ -1,13 +1,167 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, count, desc, eq, inArray, sum } from 'drizzle-orm';
 import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
+import type { Container } from '../../platform/container.js';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
+import { withTimeout, OfflineError, TimeoutError } from '../../platform/resilience.js';
 import { deriveReviewStatus } from './status.js';
+
+/**
+ * GitHub sync is best-effort. The two "GitHub is slow / down, serving
+ * persisted" signals — the breaker's OfflineError (short-circuited) and a
+ * TimeoutError (the wall-clock budget elapsed) — are the expected steady state
+ * while GitHub is unreachable, so they log at debug (no warn spam on every
+ * reload). Anything else (auth, 5xx, unexpected) is a genuine degradation and
+ * stays at warn.
+ */
+function logGithubSkip(
+  log: FastifyBaseLogger,
+  err: unknown,
+  msg: string,
+  extra: Record<string, unknown> = {},
+): void {
+  const expected = err instanceof OfflineError || err instanceof TimeoutError;
+  log[expected ? 'debug' : 'warn']({ err, ...extra }, msg);
+}
+
+// Diff stats aren't on GitHub's PR-list payload, so freshly-imported PRs land
+// with zeroed size/diff. Backfill them from the detail endpoint, capped per
+// sync (each backfill is a detail fetch).
+const BACKFILL_LIMIT = 10;
+
+// Wall-clock budget the LIST read will wait on the best-effort GitHub sync
+// before serving persisted rows. A slow/offline/503-ing repo would otherwise
+// retry-storm (list + up to BACKFILL_LIMIT serial detail fetches, each
+// retried) and stall the page load for ~a minute. When the budget elapses we
+// serve persisted PRs and the sync keeps finishing in the background.
+const GITHUB_SYNC_BUDGET_MS = 2500;
+
+// Per-repo in-flight GitHub sync. Rapid reloads / concurrent readers share one
+// background sync instead of each spawning its own retry-storm against a slow
+// or 503-ing GitHub. Keyed by repo id; cleared when the sync settles.
+const inFlightPullSync = new Map<string, Promise<void>>();
+
+/**
+ * Best-effort GitHub sync for a repo's PRs: upsert the PR list, then backfill
+ * diff stats for freshly-imported PRs. Writes to the DB only; the LIST route
+ * re-reads persisted rows afterwards. Local-first — every GitHub failure is
+ * logged and swallowed, never thrown, so the read never fails on it.
+ */
+async function syncRepoPulls(
+  container: Container,
+  log: FastifyBaseLogger,
+  workspaceId: string,
+  repo: typeof t.repos.$inferSelect,
+): Promise<void> {
+  let gh: GitHubClient;
+  try {
+    gh = await container.github();
+  } catch (err) {
+    log.warn({ err }, 'GitHub client unavailable (no token / offline); serving persisted PRs');
+    return;
+  }
+
+  try {
+    const pulls = await gh.listPullRequests({ owner: repo.owner, name: repo.name });
+    for (const pr of pulls) {
+      await container.db
+        .insert(t.pullRequests)
+        .values({
+          workspaceId,
+          repoId: repo.id,
+          number: pr.number,
+          title: pr.title,
+          author: pr.author,
+          branch: pr.branch,
+          base: pr.base,
+          headSha: pr.head_sha,
+          additions: pr.additions,
+          deletions: pr.deletions,
+          filesCount: pr.files_count,
+          status: pr.status,
+          openedAt: pr.opened_at ? new Date(pr.opened_at) : null,
+          updatedAt: pr.updated_at ? new Date(pr.updated_at) : null,
+        })
+        .onConflictDoUpdate({
+          target: [t.pullRequests.repoId, t.pullRequests.number],
+          set: {
+            title: pr.title,
+            headSha: pr.head_sha,
+            status: pr.status,
+            updatedAt: pr.updated_at ? new Date(pr.updated_at) : null,
+          },
+        });
+    }
+  } catch (err) {
+    // If the list itself failed there's nothing to backfill against.
+    logGithubSkip(log, err, 'GitHub PR sync skipped (no token / offline); serving persisted PRs');
+    return;
+  }
+
+  // Backfill diff stats once from the detail endpoint. Capped; the periodic
+  // refetch chips away at any remainder.
+  const rows = await container.db
+    .select()
+    .from(t.pullRequests)
+    .where(eq(t.pullRequests.repoId, repo.id));
+  const needStats = rows
+    .filter((r) => r.additions === 0 && r.deletions === 0 && r.filesCount === 0)
+    .slice(0, BACKFILL_LIMIT);
+  for (const r of needStats) {
+    try {
+      const detail = await gh.getPullRequest({ owner: repo.owner, name: repo.name }, r.number);
+      await container.db
+        .update(t.pullRequests)
+        .set({
+          additions: detail.additions,
+          deletions: detail.deletions,
+          filesCount: detail.files_count,
+        })
+        .where(eq(t.pullRequests.id, r.id));
+    } catch (err) {
+      logGithubSkip(log, err, 'PR diff-stat backfill skipped', { number: r.number });
+    }
+  }
+}
+
+/**
+ * Kick off (or reuse) the best-effort GitHub sync for a repo, then wait on it
+ * only up to GITHUB_SYNC_BUDGET_MS. A healthy GitHub finishes inside the
+ * budget → the read reflects fresh data; a slow/failing one blows the budget →
+ * the read serves persisted rows immediately while the sync completes in the
+ * background (idempotent upserts). Concurrent readers share one sync per repo.
+ */
+async function syncRepoPullsWithinBudget(
+  container: Container,
+  log: FastifyBaseLogger,
+  workspaceId: string,
+  repo: typeof t.repos.$inferSelect,
+): Promise<void> {
+  let sync = inFlightPullSync.get(repo.id);
+  if (!sync) {
+    sync = syncRepoPulls(container, log, workspaceId, repo).finally(() =>
+      inFlightPullSync.delete(repo.id),
+    );
+    inFlightPullSync.set(repo.id, sync);
+  }
+  // Don't let a still-running background sync bubble an unhandled rejection
+  // once we stop awaiting it.
+  sync.catch(() => {});
+  try {
+    await withTimeout(sync, GITHUB_SYNC_BUDGET_MS);
+  } catch (err) {
+    logGithubSkip(
+      log,
+      err,
+      'GitHub PR sync exceeded budget; serving persisted PRs (sync continues in background)',
+    );
+  }
+}
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -31,85 +185,16 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       .where(and(eq(t.repos.workspaceId, workspaceId), eq(t.repos.id, req.params.id)));
     if (!repo) throw new NotFoundError('Repo not found');
 
-    let gh: GitHubClient | null = null;
-    try {
-      gh = await container.github();
-    } catch (err) {
-      app.log.warn({ err }, 'GitHub client unavailable (no token / offline); serving persisted PRs');
-    }
-
-    // Local-first: sync from GitHub when a token is configured, but never
-    // fail the read — already-imported/seeded PRs stay viewable offline.
-    if (gh) {
-      try {
-        const pulls = await gh.listPullRequests({ owner: repo.owner, name: repo.name });
-        for (const pr of pulls) {
-          await container.db
-            .insert(t.pullRequests)
-            .values({
-              workspaceId,
-              repoId: repo.id,
-              number: pr.number,
-              title: pr.title,
-              author: pr.author,
-              branch: pr.branch,
-              base: pr.base,
-              headSha: pr.head_sha,
-              additions: pr.additions,
-              deletions: pr.deletions,
-              filesCount: pr.files_count,
-              status: pr.status,
-              openedAt: pr.opened_at ? new Date(pr.opened_at) : null,
-              updatedAt: pr.updated_at ? new Date(pr.updated_at) : null,
-            })
-            .onConflictDoUpdate({
-              target: [t.pullRequests.repoId, t.pullRequests.number],
-              set: {
-                title: pr.title,
-                headSha: pr.head_sha,
-                status: pr.status,
-                updatedAt: pr.updated_at ? new Date(pr.updated_at) : null,
-              },
-            });
-        }
-      } catch (err) {
-        app.log.warn({ err }, 'GitHub PR sync skipped (no token / offline); serving persisted PRs');
-      }
-    }
+    // Local-first: sync from GitHub when a token is configured, but never let
+    // it stall (or fail) the read. Bounded by a wall-clock budget — a healthy
+    // GitHub refreshes within it, a slow/offline/503-ing one is abandoned to a
+    // background sync and we serve already-imported/seeded PRs immediately.
+    await syncRepoPullsWithinBudget(container, app.log, workspaceId, repo);
 
     const rows = await container.db
       .select()
       .from(t.pullRequests)
       .where(eq(t.pullRequests.repoId, repo.id));
-
-    // Diff stats aren't on GitHub's PR-list payload, so freshly-imported PRs
-    // land with zeroed size/diff. Backfill them once from the detail endpoint
-    // so the list shows real S/M/L + ± counts. Capped per request (each backfill
-    // is a detail fetch) — the periodic refetch chips away at any remainder.
-    const BACKFILL_LIMIT = 10;
-    if (gh) {
-      const needStats = rows
-        .filter((r) => r.additions === 0 && r.deletions === 0 && r.filesCount === 0)
-        .slice(0, BACKFILL_LIMIT);
-      for (const r of needStats) {
-        try {
-          const detail = await gh.getPullRequest({ owner: repo.owner, name: repo.name }, r.number);
-          await container.db
-            .update(t.pullRequests)
-            .set({
-              additions: detail.additions,
-              deletions: detail.deletions,
-              filesCount: detail.files_count,
-            })
-            .where(eq(t.pullRequests.id, r.id));
-          r.additions = detail.additions;
-          r.deletions = detail.deletions;
-          r.filesCount = detail.files_count;
-        } catch (err) {
-          app.log.warn({ err, number: r.number }, 'PR diff-stat backfill skipped');
-        }
-      }
-    }
 
     // Latest-review SCORE per PR for the list's score ring. Computed on read
     // from reviews (no FK denorm); the list is small, so one IN-query + JS
@@ -213,10 +298,15 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
 
     // Local-first: refresh detail from GitHub when a token is configured;
     // otherwise serve the persisted files/commits/body (seeded or previously
-    // imported) so PR detail works offline.
+    // imported) so PR detail works offline. Bounded by the same wall-clock
+    // budget as the list — a slow/offline GitHub is abandoned so the page never
+    // hangs on the per-call 30s timeout; the persisted detail serves instead.
     try {
       const gh = await container.github();
-      const detail = await gh.getPullRequest({ owner: repo.owner, name: repo.name }, pr.number);
+      const detail = await withTimeout(
+        gh.getPullRequest({ owner: repo.owner, name: repo.name }, pr.number),
+        GITHUB_SYNC_BUDGET_MS,
+      );
 
       await container.db.delete(t.prFiles).where(eq(t.prFiles.prId, pr.id));
       if (detail.files.length > 0) {
@@ -256,7 +346,11 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
 
       return { ...detail, id: pr.id };
     } catch (err) {
-      app.log.warn({ err }, 'GitHub PR detail refresh skipped (no token / offline); serving persisted detail');
+      logGithubSkip(
+        app.log,
+        err,
+        'GitHub PR detail refresh skipped (no token / offline); serving persisted detail',
+      );
       const files = await container.db.select().from(t.prFiles).where(eq(t.prFiles.prId, pr.id));
       const commits = await container.db.select().from(t.prCommits).where(eq(t.prCommits.prId, pr.id));
       return {
@@ -321,7 +415,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       try {
         return await gh.listReviewComments({ owner: repo.owner, name: repo.name }, pr.number);
       } catch (err) {
-        app.log.warn({ err }, 'GitHub review-comments fetch skipped (offline / error)');
+        logGithubSkip(app.log, err, 'GitHub review-comments fetch skipped (offline / error)');
         return [];
       }
     },

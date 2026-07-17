@@ -1,0 +1,136 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for BlastTab + its sub-components. */
+export const s = {
+  statRow: {
+    display: "flex",
+    gap: 10,
+    marginBottom: 16,
+    flexWrap: "wrap",
+  } satisfies CSSProperties,
+  badgeRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 16,
+  } satisfies CSSProperties,
+  badgeText: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  } satisfies CSSProperties,
+  badgeReason: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  toggleRow: {
+    display: "flex",
+    gap: 6,
+    marginBottom: 16,
+  } satisfies CSSProperties,
+  symbolList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  } satisfies CSSProperties,
+  symbolCard: {
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+  } satisfies CSSProperties,
+  symbolHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "10px 12px",
+  } satisfies CSSProperties,
+  disclosureBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  symbolName: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
+  symbolCallerCount: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  symbolBody: {
+    padding: "0 12px 14px 34px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  } satisfies CSSProperties,
+  callerList: {
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+  } satisfies CSSProperties,
+  callerRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 13,
+  } satisfies CSSProperties,
+  callerConnector: {
+    fontFamily: "var(--font-mono, monospace)",
+    fontSize: 13,
+    color: "var(--text-muted)",
+    flexShrink: 0,
+    lineHeight: 1,
+  } satisfies CSSProperties,
+  emptyHint: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+  } satisfies CSSProperties,
+  chipRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  } satisfies CSSProperties,
+  endpointChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "4px 10px",
+    borderRadius: 6,
+    fontSize: 12.5,
+    fontWeight: 500,
+    color: "var(--accent-text, #7aa2f7)",
+    background: "color-mix(in srgb, var(--accent, #4f7cff) 12%, transparent)",
+    border: "1px solid color-mix(in srgb, var(--accent, #4f7cff) 30%, transparent)",
+  } satisfies CSSProperties,
+  cronChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "4px 10px",
+    borderRadius: 6,
+    fontSize: 12.5,
+    fontWeight: 500,
+    color: "var(--warn, #e0a458)",
+    background: "color-mix(in srgb, var(--warn, #e0a458) 12%, transparent)",
+    border: "1px solid color-mix(in srgb, var(--warn, #e0a458) 30%, transparent)",
+  } satisfies CSSProperties,
+  section: {
+    marginTop: 20,
+  } satisfies CSSProperties,
+  explanation: {
+    fontSize: 13.5,
+    lineHeight: 1.55,
+    color: "var(--text-secondary)",
+    marginTop: 0,
+  } satisfies CSSProperties,
+} as const;

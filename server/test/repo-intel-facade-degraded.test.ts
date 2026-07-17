@@ -36,6 +36,8 @@ function buildDegradedService(opts: {
     getCachedSymbols: async () => [],
     getCachedSymbolsForFiles: async () => [],
     getCachedReferencesTo: async () => [],
+    getEdges: async () => [],
+    getFileFacts: async () => [],
   };
   return svc;
 }
@@ -94,6 +96,7 @@ describe('RepoIntel facade — degraded contract (flag off)', () => {
     await expect(svc.getConventionSamples('r1', 12)).resolves.toEqual([]);
     await expect(svc.getTopFilesByRank('r1', 7)).resolves.toEqual([]);
     await expect(svc.getCriticalPaths('r1')).resolves.toEqual([]);
+    await expect(svc.getReachableEndpoints('r1', ['a.ts'])).resolves.toEqual([]);
   });
 
   it('indexRepo / refreshIndex → degraded T1 skeleton (never throws)', async () => {
@@ -121,5 +124,57 @@ describe('RepoIntel facade — degraded contract (flag on, but no data)', () => 
   it('getCallerSignatures with empty changedFiles → []', async () => {
     const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: '/tmp' } });
     await expect(svc.getCallerSignatures('r1', [])).resolves.toEqual([]);
+  });
+});
+
+describe('RepoIntel facade — getReachableEndpoints (2-level import-graph walk)', () => {
+  // util.ts ← service.ts ← routes.ts ← app.ts  (`from imports to`, so the
+  // dependents chain walks the reverse edge). From the changed util.ts:
+  // hop 1 = service.ts, hop 2 = routes.ts, hop 3 = app.ts.
+  const edges = [
+    { fromFile: 'service.ts', toFile: 'util.ts' },
+    { fromFile: 'routes.ts', toFile: 'service.ts' },
+    { fromFile: 'app.ts', toFile: 'routes.ts' },
+  ];
+  const facts = [
+    { filePath: 'util.ts', endpoints: ['DIRECT /util'], crons: [] },
+    { filePath: 'service.ts', endpoints: [], crons: [] },
+    { filePath: 'routes.ts', endpoints: ['GET /api'], crons: [] },
+    { filePath: 'app.ts', endpoints: ['GET /app'], crons: [] },
+  ];
+
+  function buildGraphService(): RepoIntelService {
+    const container = { config: { repoIntelEnabled: true }, db: {} as never } as never;
+    const svc = new RepoIntelService(container);
+    (svc as unknown as { repo: Record<string, unknown> }).repo = {
+      getEdges: async () => edges,
+      getFileFacts: async (_r: string, files: string[]) =>
+        facts.filter((f) => files.includes(f.filePath)),
+    };
+    return svc;
+  }
+
+  it('collects endpoints of the changed file + dependents up to 2 hops, excluding hop 3', async () => {
+    const svc = buildGraphService();
+    // util.ts (self) + service.ts (hop1, no endpoints) + routes.ts (hop2).
+    // app.ts is hop 3 → its `GET /app` is NOT reachable at the default depth.
+    await expect(svc.getReachableEndpoints('r1', ['util.ts'])).resolves.toEqual([
+      'DIRECT /util',
+      'GET /api',
+    ]);
+  });
+
+  it('honors a custom depth — depth 3 reaches app.ts', async () => {
+    const svc = buildGraphService();
+    await expect(svc.getReachableEndpoints('r1', ['util.ts'], 3)).resolves.toEqual([
+      'DIRECT /util',
+      'GET /api',
+      'GET /app',
+    ]);
+  });
+
+  it('empty changedFiles → [] (no walk)', async () => {
+    const svc = buildGraphService();
+    await expect(svc.getReachableEndpoints('r1', [])).resolves.toEqual([]);
   });
 });

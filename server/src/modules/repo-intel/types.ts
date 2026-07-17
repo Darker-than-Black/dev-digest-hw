@@ -145,6 +145,18 @@ export interface RepoIntel {
 
   // --- Reads --------------------------------------------------------------
   getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
+  /**
+   * HTTP endpoints reachable from `changedFiles` by walking the import graph
+   * outward to dependents (files that import a changed file, transitively) up
+   * to `depth` hops (default `BFS_DEPTH` = 2). Pure read over `file_edges` +
+   * `file_facts`; returns `[]` when the flag is off, the graph is empty, or
+   * nothing is reachable (degraded contract — never throws).
+   */
+  getReachableEndpoints(
+    repoId: string,
+    changedFiles: string[],
+    depth?: number,
+  ): Promise<string[]>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;

@@ -12,9 +12,24 @@ import type {
   CommitFilesPayload,
   IssueMeta,
 } from '@devdigest/shared';
-import { withRetry, withTimeout } from '../../platform/resilience.js';
+import { withRetry, withTimeout, CircuitBreaker } from '../../platform/resilience.js';
 
 const TIMEOUT = 30_000;
+
+// Process-wide breaker for GitHub. When GitHub is unreachable, each call would
+// otherwise hang the full TIMEOUT (30s) before failing — and a page load fires
+// several (list + per-PR detail). After a few consecutive timeouts the breaker
+// opens and further calls reject in microseconds with OfflineError, so reads
+// fall back to persisted rows immediately instead of stalling. One probe is let
+// through after the cooldown to auto-recover when GitHub comes back. HTTP
+// answers (404/401/5xx) prove reachability and never trip it.
+const githubBreaker = new CircuitBreaker({
+  name: 'github',
+  threshold: 2,
+  cooldownMs: 20_000,
+  onOpen: () => console.warn('[github-breaker] OPEN — GitHub calls will short-circuit'),
+  onClose: () => console.warn('[github-breaker] CLOSED — GitHub reachable again'),
+});
 
 function mapStatus(state: string, merged: boolean | undefined): PrStatus {
   if (merged) return 'merged';
@@ -33,10 +48,18 @@ export class OctokitGitHubClient implements GitHubClient {
     this.octokit = new Octokit({ auth: token });
   }
 
+  /**
+   * Uniform resilience wrapper for every GitHub call: circuit breaker (skip
+   * when GitHub is known-down) → retry (transient 429/5xx/network) → per-call
+   * timeout. One seam so no method can accidentally omit a guard.
+   */
+  private resilient<T>(fn: () => Promise<T>): Promise<T> {
+    return githubBreaker.run(() => withRetry(() => withTimeout(fn(), TIMEOUT)));
+  }
+
   async listPullRequests(repo: RepoRef): Promise<PrMeta[]> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           // Fetch open + recently merged/closed (most-recently-updated first) so
           // the list shows which PRs are merged vs still open — not just open.
           const res = await this.octokit.rest.pulls.list({
@@ -61,16 +84,13 @@ export class OctokitGitHubClient implements GitHubClient {
             opened_at: pr.created_at,
             updated_at: pr.updated_at,
           }));
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
   async getPullRequest(repo: RepoRef, n: number): Promise<PrDetail> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           const { data: pr } = await this.octokit.rest.pulls.get({
             owner: repo.owner,
             repo: repo.name,
@@ -117,9 +137,7 @@ export class OctokitGitHubClient implements GitHubClient {
             })),
             linked_issue: linkedIssue,
           };
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
@@ -139,9 +157,8 @@ export class OctokitGitHubClient implements GitHubClient {
     n: number,
     review: GitHubReviewPayload,
   ): Promise<{ id: string }> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           const res = await this.octokit.rest.pulls.createReview({
             owner: repo.owner,
             repo: repo.name,
@@ -155,9 +172,7 @@ export class OctokitGitHubClient implements GitHubClient {
             })),
           });
           return { id: String(res.data.id) };
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
@@ -191,9 +206,8 @@ export class OctokitGitHubClient implements GitHubClient {
   }
 
   async listReviewComments(repo: RepoRef, n: number): Promise<PrReviewComment[]> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           const res = await this.octokit.rest.pulls.listReviewComments({
             owner: repo.owner,
             repo: repo.name,
@@ -201,9 +215,7 @@ export class OctokitGitHubClient implements GitHubClient {
             per_page: 100,
           });
           return res.data.map((c) => this.mapReviewComment(c));
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
@@ -212,9 +224,8 @@ export class OctokitGitHubClient implements GitHubClient {
     n: number,
     input: CreateReviewCommentInput,
   ): Promise<PrReviewComment> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           if (input.inReplyTo != null) {
             const res = await this.octokit.rest.pulls.createReplyForReviewComment({
               owner: repo.owner,
@@ -236,16 +247,13 @@ export class OctokitGitHubClient implements GitHubClient {
             body: input.body,
           });
           return this.mapReviewComment(res.data);
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
   async openPullRequest(repo: RepoRef, payload: OpenPrPayload): Promise<{ url: string }> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           const res = await this.octokit.rest.pulls.create({
             owner: repo.owner,
             repo: repo.name,
@@ -255,9 +263,7 @@ export class OctokitGitHubClient implements GitHubClient {
             body: payload.body,
           });
           return { url: res.data.html_url };
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
@@ -265,9 +271,8 @@ export class OctokitGitHubClient implements GitHubClient {
     repo: RepoRef,
     payload: CommitFilesPayload,
   ): Promise<{ branch: string }> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           const owner = repo.owner;
           const name = repo.name;
           const g = this.octokit.rest.git;
@@ -323,16 +328,13 @@ export class OctokitGitHubClient implements GitHubClient {
             });
           }
           return { branch: payload.branch };
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
   async findOpenPr(repo: RepoRef, branch: string): Promise<{ url: string } | null> {
-    return withRetry(() =>
-      withTimeout(
-        (async () => {
+    return this.resilient(
+      async () => {
           const res = await this.octokit.rest.pulls.list({
             owner: repo.owner,
             repo: repo.name,
@@ -342,18 +344,13 @@ export class OctokitGitHubClient implements GitHubClient {
           });
           const pr = res.data[0];
           return pr ? { url: pr.html_url } : null;
-        })(),
-        TIMEOUT,
-      ),
+      },
     );
   }
 
   async getIssue(repo: RepoRef, n: number): Promise<IssueMeta> {
-    const res = await withRetry(() =>
-      withTimeout(
-        this.octokit.rest.issues.get({ owner: repo.owner, repo: repo.name, issue_number: n }),
-        TIMEOUT,
-      ),
+    const res = await this.resilient(() =>
+      this.octokit.rest.issues.get({ owner: repo.owner, repo: repo.name, issue_number: n }),
     );
     return {
       number: res.data.number,
@@ -364,9 +361,7 @@ export class OctokitGitHubClient implements GitHubClient {
   }
 
   async currentLogin(): Promise<string> {
-    const res = await withRetry(() =>
-      withTimeout(this.octokit.rest.users.getAuthenticated(), TIMEOUT),
-    );
+    const res = await this.resilient(() => this.octokit.rest.users.getAuthenticated());
     return res.data.login;
   }
 }

@@ -25,6 +25,9 @@ main call" pair on one feature-model slot.
 
 ## What Doesn't Work
 
+### PR detail route (`GET /pulls/:id`) has NO GitHub sync budget — 30s page hang when GitHub is slow/unreachable
+`modules/pulls/routes.ts`: the LIST route guards its best-effort sync with `withTimeout(sync, GITHUB_SYNC_BUDGET_MS=2500)` + a shared in-flight map, so a slow/offline GitHub is abandoned to a background sync and persisted rows serve immediately. The DETAIL route does the opposite — it `await gh.getPullRequest(...)` inline with no budget. octokit's per-call `TIMEOUT = 30_000` (`adapters/github/octokit.ts:17`) then blocks the whole request 30s before the catch serves persisted detail. `TimeoutError` is NOT retryable (`defaultIsRetryable` keys off status/code, timeout has neither) so it's one 30s hit, not ×3 — but still a 30s hang per detail load when a token is configured and GitHub is unreachable. The `GitHub PR sync skipped … serving persisted PRs` warning in logs is the LIST background sync's 30s timeout firing AFTER the page already served — log noise, not the slow path. Fix pattern: mirror the list's budget guard on the detail refresh.
+
 ## Codebase Patterns
 
 ### `completeAgentRun` has TWO signatures — the repo fn AND a facade wrapper
